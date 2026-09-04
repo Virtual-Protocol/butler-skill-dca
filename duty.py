@@ -193,11 +193,29 @@ def day_allowed(tick_at):
     return False, f"{WEEKDAYS[day.weekday()]} {day.day} is not one of {DAYS}"
 
 
-def slot_for(tick_at):
+def note_id_for(detail):
+    """The dedup id for a skip note. The reason TEXT carries live numbers
+    ("price $79454.0 is below…"), so using it raw minted a new id every tick
+    and `Notes.once` pushed on every one — 24 a day for an hourly duty parked
+    under its floor. The reason SHAPE is the reason: strip the digits."""
+    return "skip:" + "".join("#" if ch.isdigit() else ch for ch in str(detail))
+
+
+def slot_for(event):
     """The schedule slot this tick belongs to. A daily cadence buckets by UTC
     date, an interval one by interval index — both map a redelivered tick to
-    the SAME slot, which its raw timestamp never would."""
-    raw = str(tick_at or "")
+    the SAME slot, which its raw timestamp never would.
+
+    The cadence comes from the TICK, not from the env. A timer event carries
+    the trigger's own `dailyAt` / `intervalSeconds`, and those are what the
+    schedule actually fires on. Reading the env here was a silent trap: an
+    hourly trigger left with the 86400 default bucketed all 24 ticks of a day
+    into ONE slot, so 23 of them were skipped as already done and the duty
+    quietly ran once a day. The env is only the fallback for a tick that
+    carries neither."""
+    if not isinstance(event, dict):
+        event = {"at": event}
+    raw = str(event.get("at") or "")
     fired = None
     if raw:
         try:
@@ -208,9 +226,9 @@ def slot_for(tick_at):
         return raw or "unknown"
     if fired.tzinfo is None:
         fired = fired.replace(tzinfo=timezone.utc)
-    if DAILY_AT:
+    if event.get("dailyAt") or (DAILY_AT and not event.get("intervalSeconds")):
         return fired.astimezone(timezone.utc).strftime("%Y-%m-%d")
-    step = INTERVAL_SECONDS if INTERVAL_SECONDS > 0 else 86400
+    step = int(_num(event.get("intervalSeconds"), 0.0)) or INTERVAL_SECONDS or 86400
     return str(int(fired.timestamp()) // step)
 
 
@@ -366,7 +384,7 @@ def main():
         if ev.get("kind") != "timer":
             continue
 
-        slot = slot_for(ev.get("at"))
+        slot = slot_for(ev)
         if slot in state:
             continue
 
@@ -396,7 +414,7 @@ def main():
         command, detail = plan(assets, key)
         if command is None:
             bevo.log(f"dca slot={slot} skipped: {detail}")
-            notes.once(f"skip:{detail}", f"DCA on {label()} skipped a run: {detail}.")
+            notes.once(note_id_for(detail), f"DCA on {label()} skipped a run: {detail}.")
             state.done(slot)
             continue
 

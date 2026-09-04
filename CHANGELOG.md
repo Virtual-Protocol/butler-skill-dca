@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.2.1
+
+- **An hourly duty ran once a day.** `slot_for()` bucketed by `DCA_INTERVAL_SECONDS`, so a
+  trigger of `{"kind":"timer","intervalSeconds":3600}` left with the 86400 default mapped all
+  24 ticks of a day to ONE slot; 23 were skipped as already done, silently. The slot key now
+  takes the cadence from the TICK — a timer event carries the trigger's own `dailyAt` /
+  `intervalSeconds`, which is what the schedule actually fires on — and falls back to the env
+  only when the tick carries neither. Replayed: 3 hourly ticks now file 3 trades, where 1.2.0
+  filed 1.
+- **A skip could notify every tick.** `Notes.once` deduped on the reason TEXT, which embeds the
+  live price, so each tick minted a new id. An hourly duty parked under its floor pushed 24
+  times a day. The id is now the reason SHAPE with the digits stripped.
+- **The Limits section contradicted Customize on the exact ask this skill is for.** Customize
+  says a candle close is mechanical, so fork and compute it; Limits still said
+  `"when the 15m closes above X"` is a `judgment` condition with `DCA_ESCALATE`. Limits now
+  agrees: fork for arithmetic, escalate for judgment.
+- **`networkId` is not a chain id.** "Before you start" said to take it into `DCA_CHAIN_ID`;
+  AGENTS.md says outright that it is a search-index id and NEVER a trade chain id. Map the
+  row's `networkLabel` through the chain-id table instead.
+- The duty procedure now says the trigger and `DCA_INTERVAL_SECONDS` / `DCA_DAILY_AT` must
+  agree, since a disagreement is what produced the first bug above.
+
 ## 1.2.0
 
 - A condition the knobs cannot express now points at FORKING, not only at escalation.
