@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.0
+
+- A condition the knobs cannot express now points at FORKING, not only at escalation.
+  `DCA_ESCALATE` costs a wake per eligible run and suits a condition that needs judgment; a
+  mechanical one — a candle close, a moving average, a second asset's price, an on-chain
+  reading — is code, and code is free and runs every tick. `bevo-hub fork butler-dca` makes the
+  owner's own copy, `duty.py` is theirs to edit, and forking changes nothing that guards the
+  money: same sandbox, same signing policy, same approval cards, same pocket.
+
 ## 1.1.0
 
 - The price gate is now a two-sided BAND on every gated action. `DCA_MAX_PRICE` is a ceiling
