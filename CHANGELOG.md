@@ -17,6 +17,9 @@
   phrasings and cadence words now match, while a plain one-line trade scores zero.
 - Duty procedure: rehearse before create (AGENTS.md section 5's ritual applies to a
   `--from-skill` create too), and name any non-zero default gate left in place.
+- The frontmatter namespace key is `metadata.butler`, not `metadata.bevo`. No field inside
+  the block changed. Requires a container image that reads `metadata.butler`; an older image
+  reads the block as empty and loses `dutyTemplate`, `params` and `modes`.
 
 ## 1.0.0
 
