@@ -9,3 +9,5 @@ jobs:
       # Checks out this repo, fetches the hub's validator + offline replay harness and
       # runs both (inputs: path, default "."; standalone, default "true").
       - uses: Virtual-Protocol/butler-skills/.github/actions/validate@main
+        with:
+          maintainer: "true"
