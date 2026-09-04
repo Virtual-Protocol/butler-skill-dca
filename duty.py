@@ -9,6 +9,11 @@ import json
 import os
 from datetime import datetime, timezone
 
+try:  # stdlib since 3.9; a container without tzdata falls back to UTC
+    from zoneinfo import ZoneInfo
+except ImportError:  # pragma: no cover
+    ZoneInfo = None
+
 import bevo
 
 STATE_PATH = "state.json"
@@ -39,6 +44,10 @@ INTERVAL_SECONDS = int(_num(os.environ.get("DCA_INTERVAL_SECONDS", "86400"), 864
 DAILY_AT = os.environ.get("DCA_DAILY_AT", "").strip()
 MAX_PRICE = _num(os.environ.get("DCA_MAX_PRICE", "0"), 0.0)
 MIN_PRICE = _num(os.environ.get("DCA_MIN_PRICE", "0"), 0.0)
+BUY_PCT_OF_CASH = _num(os.environ.get("DCA_BUY_PCT_OF_CASH", "0"), 0.0)
+SELL_PCT_PER_RUN = _num(os.environ.get("DCA_SELL_PCT_PER_RUN", "0"), 0.0)
+DAYS = os.environ.get("DCA_DAYS", "").strip().lower()
+TIMEZONE = os.environ.get("DCA_TIMEZONE", "").strip()
 MIN_CASH_USD = _num(os.environ.get("DCA_MIN_CASH_USD", "25"), 25.0)
 MAX_RUNS = int(_num(os.environ.get("DCA_MAX_RUNS", "0"), 0.0))
 TOTAL_BUDGET_USD = _num(os.environ.get("DCA_TOTAL_BUDGET_USD", "0"), 0.0)
@@ -126,6 +135,64 @@ class Notes:
         bevo.notify(text)
 
 
+WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+
+def price_gate(value, what):
+    """The price band, applied to EVERY gated action. `DCA_MIN_PRICE` is a
+    floor and `DCA_MAX_PRICE` a ceiling, and either may be set on a buy or a
+    sell — a floor on a buy is "only when it breaks above", a ceiling on a
+    sell is "only when it drops below". Returns a skip reason, or None.
+
+    An unreadable price with a gate set is always a SKIP: an unverified
+    condition never trades."""
+    if MIN_PRICE <= 0 and MAX_PRICE <= 0:
+        return None
+    if not value:
+        return f"a price gate is set but the {what} could not be read"
+    if MIN_PRICE > 0 and value < MIN_PRICE:
+        return f"{what} ${fmt(value)} is below the ${fmt(MIN_PRICE)} floor"
+    if MAX_PRICE > 0 and value > MAX_PRICE:
+        return f"{what} ${fmt(value)} is above the ${fmt(MAX_PRICE)} ceiling"
+    return None
+
+
+def local_date(tick_at):
+    """The tick's calendar date in the duty's timezone (UTC when unset or
+    unknown). The day filter is a calendar question, so it must be asked in
+    the owner's calendar, not the server's."""
+    raw = str(tick_at or "")
+    try:
+        fired = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if fired.tzinfo is None:
+        fired = fired.replace(tzinfo=timezone.utc)
+    if TIMEZONE and ZoneInfo is not None:
+        try:
+            return fired.astimezone(ZoneInfo(TIMEZONE)).date()
+        except Exception:
+            pass
+    return fired.astimezone(timezone.utc).date()
+
+
+def day_allowed(tick_at):
+    """`DCA_DAYS` accepts weekday names and month-days in one list:
+    "mon,fri" or "1,15" or "mon,15". Empty means every tick runs. A tick the
+    filter rejects is a quiet skip, not a failure — the cadence is the
+    trigger's, and this only thins it."""
+    if not DAYS:
+        return True, None
+    wanted = {d.strip()[:3] if d.strip()[:1].isalpha() else d.strip() for d in DAYS.split(",") if d.strip()}
+    day = local_date(tick_at)
+    if day is None:
+        return True, None  # unparsable tick: never silently stop the schedule
+    names = {WEEKDAYS[day.weekday()], str(day.day)}
+    if names & wanted:
+        return True, None
+    return False, f"{WEEKDAYS[day.weekday()]} {day.day} is not one of {DAYS}"
+
+
 def slot_for(tick_at):
     """The schedule slot this tick belongs to. A daily cadence buckets by UTC
     date, an interval one by interval index — both map a redelivered tick to
@@ -203,37 +270,40 @@ def plan(assets, key):
         cash = assets.get("spotUsdcUsd")
         if cash is None:
             return None, "spot cash could not be read"
-        if _num(cash, 0.0) - USD_PER_RUN < MIN_CASH_USD:
-            return None, f"a ${fmt(USD_PER_RUN)} buy would leave under ${fmt(MIN_CASH_USD)} cash"
-        if USD_PER_RUN < SPOT_MIN_USD:
-            return None, f"${fmt(USD_PER_RUN)} is under the ${fmt(SPOT_MIN_USD)} spot minimum"
-        if MAX_PRICE > 0:
-            price = spot_price(assets)
-            if price is None:
-                return None, "price gate is set but the price could not be read"
-            if price > MAX_PRICE:
-                return None, f"price ${fmt(price)} is above the ${fmt(MAX_PRICE)} gate"
+        # Size: a percentage of live cash when asked for, else the flat figure.
+        usd = USD_PER_RUN
+        if BUY_PCT_OF_CASH > 0:
+            usd = _num(cash, 0.0) * BUY_PCT_OF_CASH / 100.0
+        if _num(cash, 0.0) - usd < MIN_CASH_USD:
+            return None, f"a ${fmt(usd)} buy would leave under ${fmt(MIN_CASH_USD)} cash"
+        if usd < SPOT_MIN_USD:
+            return None, f"${fmt(usd)} is under the ${fmt(SPOT_MIN_USD)} spot minimum"
+        skip = price_gate(spot_price(assets), "price")
+        if skip:
+            return None, skip
         return (
-            f"acp trade --token-in usdc --amount-in {fmt(USD_PER_RUN)} "
+            f"acp trade --token-in usdc --amount-in {fmt(usd)} "
             f"--token-out {TOKEN} --chain-out {CHAIN_ID} --idempotency-key {key}"
-        ), USD_PER_RUN
+        ), usd
 
     if ACTION == "sell":
         row = holding(assets)
         if row is None:
             return None, f"nothing held on chain {CHAIN_ID} to sell"
         price = spot_price(assets)
-        if MIN_PRICE > 0:
-            if price is None:
-                return None, "price gate is set but the price could not be read"
-            if price < MIN_PRICE:
-                return None, f"price ${fmt(price)} is below the ${fmt(MIN_PRICE)} gate"
+        skip = price_gate(price, "price")
+        if skip:
+            return None, skip
+        held = _num(row.get("balance"), 0.0)
+        # Size, most explicit first: a token quantity, then a share of the
+        # holding, then a USD figure converted at the live price.
         qty = SELL_QTY_PER_RUN
+        if qty <= 0 and SELL_PCT_PER_RUN > 0:
+            qty = held * SELL_PCT_PER_RUN / 100.0
         if qty <= 0:
             if not price:
                 return None, "no price to size the sell from"
             qty = USD_PER_RUN / price
-        held = _num(row.get("balance"), 0.0)
         qty = min(qty, held)
         if qty <= 0:
             return None, f"nothing left to sell on chain {CHAIN_ID}"
@@ -244,6 +314,9 @@ def plan(assets, key):
 
     if ACTION == "perp-open":
         if MAX_PRICE > 0 or MIN_PRICE > 0:
+            # No mark price exists until a position is open, and token-search
+            # has no Hyperliquid symbols — it would answer with an on-chain
+            # lookalike. The condition belongs in judgment, with DCA_ESCALATE.
             return None, "a price gate on a perp open belongs in the duty's judgment, not a knob"
         if USD_PER_RUN < PERP_OPEN_MIN_USD:
             return None, f"${fmt(USD_PER_RUN)} is under the ${fmt(PERP_OPEN_MIN_USD)} perp minimum"
@@ -257,11 +330,9 @@ def plan(assets, key):
         if pos is None:
             return None, f"no open position on {TOKEN} to reduce"
         mark = _num(pos.get("markPriceUsd"), 0.0)
-        if MIN_PRICE > 0:
-            if not mark:
-                return None, "price gate is set but the mark price could not be read"
-            if mark < MIN_PRICE:
-                return None, f"mark ${fmt(mark)} is below the ${fmt(MIN_PRICE)} gate"
+        skip = price_gate(mark, "mark")
+        if skip:
+            return None, skip
         value = _num(pos.get("positionValueUsd"), 0.0)
         size = min(USD_PER_RUN, value)
         if size <= 0:
@@ -297,6 +368,15 @@ def main():
 
         slot = slot_for(ev.get("at"))
         if slot in state:
+            continue
+
+        # The day filter thins the trigger's cadence: an hourly or daily timer
+        # becomes "only on these weekdays / month-days". A rejected tick closes
+        # its slot quietly — it is not a skipped run and never notifies.
+        allowed, why = day_allowed(ev.get("at"))
+        if not allowed:
+            bevo.log(f"dca slot={slot} not a scheduled day: {why}")
+            state.done(slot)
             continue
 
         if MAX_RUNS and state.runs >= MAX_RUNS:
