@@ -1,5 +1,38 @@
 # Changelog
 
+## 1.3.1
+
+- **The pocket was sized for one run, not one day.** The duty procedure set
+  `requestedDailyLimitUsdc` to "one run's USD (never less)" and "Say to the owner" promised
+  "a pocket of one run's size". A pocket meters a DAY, so "$100 of BTC every hour" armed $100
+  and only the first run of each day could spend it — a duty that looks armed and healthy and
+  buys once. Both now size the pocket at a day of the cadence (hourly $100 is $2400).
+- **The weekly example taught the shape the rest of the skill forbids.** Step 1 says a named
+  weekday is `DCA_DAYS`, and "Customize" says a 7-day interval drifts where a day filter does
+  not — but the trigger JSON underneath offered `{"intervalSeconds": 604800}` as the first
+  example to copy. Replaced with `dailyAt`, and `intervalSeconds` is shown on an hourly
+  cadence, where it belongs.
+- **`--from-skill butler-dca@1.2.1` was stale on arrival.** The worked example hard-pinned the
+  previous version, so a duty created by copying it was built from 1.2.1 once 1.3.0 shipped.
+  The pin is gone — `--from-skill butler-dca` uses the installed version, and
+  `bevo-automation` records the exact commit in `sourceSkillSha256` either way.
+- **Pinning the asset used the wrong read.** "Before you start" sent the author to
+  `bevo-read token-search`, a lookalike-prone index with no alias table: "DCA $200 of BTC
+  weekly" has no exact-symbol row to take, because the asset is cbBTC. It now uses
+  `bevo-read token <SYMBOL>` — the verified list, which resolves BTC to cbBTC on Base — and
+  falls back to the search only on a 404.
+- **The price band never said whose price it reads.** It compares `DCA_TOKEN`'s own price,
+  but the `DCA_MIN_PRICE` / `DCA_MAX_PRICE` help said only "price FLOOR" / "price CEILING".
+  "Buy VIRTUAL when BTC clears 80k" set as `DCA_MIN_PRICE: 80000` gates on VIRTUAL, which
+  never reaches $80k — the duty arms, takes a pocket and silently never fires. Both knobs and
+  the "Customize" bullet now name the asset, and point a cross-asset condition at a fork.
+- **The fork path named the case but not the tool.** "Customize" lists "a second asset's
+  price" as a mechanical condition to fork for — "buy VIRTUAL when BTC clears 80k" — but the
+  how-to only offered `bevo.rpc` and "any public HTTPS source". It now names
+  `bevo.read("/token-stats", ...)`, which is the rails read for another asset's price.
+- Trimmed the chain paragraph, the fork paragraph and "Limits" where they restated
+  "Customize", to stay inside the 12,000-char body budget.
+
 ## 1.3.0
 
 - **A chain is optional, and pinning one broke every plain DCA.** `DCA_CHAIN_ID` defaulted to
