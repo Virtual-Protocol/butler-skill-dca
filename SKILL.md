@@ -1,8 +1,8 @@
 ---
 name: butler-dca
 description: Trade one asset in slices on a repeating schedule — spot or perp, flat or % size, with price-band, weekday and stop conditions. DCA, ladder in, scale out.
-version: 1.3.0
-metadata: {"openclaw":{"emoji":"🪜","requires":{"bins":["acp","bevo-read","bevo-automation"]}},"butler":{"tier":"on-demand","modes":["one-off","duty"],"moneyMoving":true,"keywords":["dca","dollar cost average","average in","average out","ladder in","ladder out","scale in","scale out","accumulate","recurring","scheduled","periodic","tranches","drip","every hour","every day","every week","every month","weekly","daily","hourly"],"requires":{"routes":["GET /butler-read/user-assets","GET /butler-read/token-search","POST /butler-exec/trade","POST /butler-exec/services"],"features":["tradeIdempotency","execRequestStatus"],"gates":["canSwap"],"bins":["acp","bevo-read","bevo-automation"]},"params":[{"name":"DCA_TOKEN","type":"string","required":true,"ask":"which asset should I average — the token's contract address for a spot swap, or its Hyperliquid symbol (BTC, ETH) for a perp?"},{"name":"DCA_ACTION","type":"enum","values":["buy","sell","perp-open","perp-reduce"],"default":"buy"},{"name":"DCA_CHAIN_ID","type":"chainId","help":"ONLY when your owner named a chain; leave it out otherwise and the trading agent resolves the token's own chain. Spot legs only; ignored on perps"},{"name":"DCA_USD_PER_RUN","type":"usd","default":25,"min":2,"max":10000,"help":"USD per run for a buy, a perp open and a perp reduce; also sizes a sell when DCA_SELL_QTY_PER_RUN is 0"},{"name":"DCA_BUY_PCT_OF_CASH","type":"number","default":0,"min":0,"max":100,"help":"buy this % of available spot cash each run instead of a flat figure; 0 = use DCA_USD_PER_RUN"},{"name":"DCA_SELL_QTY_PER_RUN","type":"number","default":0,"min":0,"max":1000000000,"help":"token quantity per sell; 0 = fall through to DCA_SELL_PCT_PER_RUN, then to DCA_USD_PER_RUN at the live price"},{"name":"DCA_SELL_PCT_PER_RUN","type":"number","default":0,"min":0,"max":100,"help":"sell this % of the holding each run; used when DCA_SELL_QTY_PER_RUN is 0"},{"name":"DCA_PERP_SIDE","type":"enum","values":["long","short"],"default":"long"},{"name":"DCA_LEVERAGE","type":"number","default":2,"min":1,"max":20},{"name":"DCA_INTERVAL_SECONDS","type":"int","default":86400,"min":3600,"max":2592000},{"name":"DCA_DAILY_AT","type":"string","default":"","help":"HH:MM in the owner's local time; when set it is used instead of the interval"},{"name":"DCA_DAYS","type":"string","default":"","help":"run only on these days — weekday names and/or month-days, e.g. \"mon,fri\" or \"1,15\"; empty = every tick"},{"name":"DCA_TIMEZONE","type":"string","default":"","help":"IANA zone the day filter reads the calendar in, e.g. Asia/Kuala_Lumpur; empty = UTC"},{"name":"DCA_MAX_PRICE","type":"number","default":0,"min":0,"max":100000000,"help":"price CEILING — act only at or below it; 0 = off. Applies to buy, sell and perp-reduce"},{"name":"DCA_MIN_PRICE","type":"number","default":0,"min":0,"max":100000000,"help":"price FLOOR — act only at or above it; 0 = off. Applies to buy, sell and perp-reduce"},{"name":"DCA_MIN_CASH_USD","type":"usd","default":25,"min":0,"max":1000000,"help":"skip a buy that would leave less spot stablecoin cash than this"},{"name":"DCA_MAX_RUNS","type":"int","default":0,"min":0,"max":10000,"help":"stop after this many filed runs; 0 = no stop"},{"name":"DCA_TOTAL_BUDGET_USD","type":"usd","default":0,"min":0,"max":1000000,"help":"stop once this much USD has moved across all runs; 0 = no stop"},{"name":"DCA_ESCALATE","type":"bool","default":false,"help":"hand each eligible run to the duty's judgment text instead of trading directly"}],"dutyTemplate":"duty.py"}}
+version: 1.3.1
+metadata: {"openclaw":{"emoji":"🪜","requires":{"bins":["acp","bevo-read","bevo-automation"]}},"butler":{"tier":"on-demand","modes":["one-off","duty"],"moneyMoving":true,"keywords":["dca","dollar cost average","average in","average out","ladder in","ladder out","scale in","scale out","accumulate","recurring","scheduled","periodic","tranches","drip","every hour","every day","every week","every month","weekly","daily","hourly"],"requires":{"routes":["GET /butler-read/user-assets","GET /butler-read/token-search","POST /butler-exec/trade","POST /butler-exec/services"],"features":["tradeIdempotency","execRequestStatus"],"gates":["canSwap"],"bins":["acp","bevo-read","bevo-automation"]},"params":[{"name":"DCA_TOKEN","type":"string","required":true,"ask":"which asset should I average — the token's contract address for a spot swap, or its Hyperliquid symbol (BTC, ETH) for a perp?"},{"name":"DCA_ACTION","type":"enum","values":["buy","sell","perp-open","perp-reduce"],"default":"buy"},{"name":"DCA_CHAIN_ID","type":"chainId","help":"ONLY when your owner named a chain; leave it out otherwise and the trading agent resolves the token's own chain. Spot legs only; ignored on perps"},{"name":"DCA_USD_PER_RUN","type":"usd","default":25,"min":2,"max":10000,"help":"USD per run for a buy, a perp open and a perp reduce; also sizes a sell when DCA_SELL_QTY_PER_RUN is 0"},{"name":"DCA_BUY_PCT_OF_CASH","type":"number","default":0,"min":0,"max":100,"help":"buy this % of available spot cash each run instead of a flat figure; 0 = use DCA_USD_PER_RUN"},{"name":"DCA_SELL_QTY_PER_RUN","type":"number","default":0,"min":0,"max":1000000000,"help":"token quantity per sell; 0 = fall through to DCA_SELL_PCT_PER_RUN, then to DCA_USD_PER_RUN at the live price"},{"name":"DCA_SELL_PCT_PER_RUN","type":"number","default":0,"min":0,"max":100,"help":"sell this % of the holding each run; used when DCA_SELL_QTY_PER_RUN is 0"},{"name":"DCA_PERP_SIDE","type":"enum","values":["long","short"],"default":"long"},{"name":"DCA_LEVERAGE","type":"number","default":2,"min":1,"max":20},{"name":"DCA_INTERVAL_SECONDS","type":"int","default":86400,"min":3600,"max":2592000},{"name":"DCA_DAILY_AT","type":"string","default":"","help":"HH:MM in the owner's local time; when set it is used instead of the interval"},{"name":"DCA_DAYS","type":"string","default":"","help":"run only on these days — weekday names and/or month-days, e.g. \"mon,fri\" or \"1,15\"; empty = every tick"},{"name":"DCA_TIMEZONE","type":"string","default":"","help":"IANA zone the day filter reads the calendar in, e.g. Asia/Kuala_Lumpur; empty = UTC"},{"name":"DCA_MAX_PRICE","type":"number","default":0,"min":0,"max":100000000,"help":"CEILING on DCA_TOKEN's OWN price — act only at or below it; 0 = off. Applies to buy, sell and perp-reduce. A condition on a DIFFERENT asset is a fork, never this knob"},{"name":"DCA_MIN_PRICE","type":"number","default":0,"min":0,"max":100000000,"help":"FLOOR on DCA_TOKEN's OWN price — act only at or above it; 0 = off. Applies to buy, sell and perp-reduce. A condition on a DIFFERENT asset is a fork, never this knob"},{"name":"DCA_MIN_CASH_USD","type":"usd","default":25,"min":0,"max":1000000,"help":"skip a buy that would leave less spot stablecoin cash than this"},{"name":"DCA_MAX_RUNS","type":"int","default":0,"min":0,"max":10000,"help":"stop after this many filed runs; 0 = no stop"},{"name":"DCA_TOTAL_BUDGET_USD","type":"usd","default":0,"min":0,"max":1000000,"help":"stop once this much USD has moved across all runs; 0 = no stop"},{"name":"DCA_ESCALATE","type":"bool","default":false,"help":"hand each eligible run to the duty's judgment text instead of trading directly"}],"dutyTemplate":"duty.py"}}
 ---
 
 ## When to use
@@ -20,19 +20,20 @@ Pin the asset once, here, at authoring time — a standing duty must trade the s
 run, so never leave a bare ticker for the schedule to re-resolve:
 
 ```bash
-bevo-read token-search --q '$TICKER'
+bevo-read token <SYMBOL>
 ```
 
-Take `address` from the match the owner meant into `DCA_TOKEN`. (AGENTS.md § token search
-decides which match the owner meant.)
+Take `address` into `DCA_TOKEN`. It is the verified list and resolves aliases — `BTC`
+returns cbBTC on Base, the asset a spot BTC duty must hold; say which asset you pinned. Only
+on a 404 fall back to `bevo-read token-search --q '$TICKER'`, picked by AGENTS.md § token
+search: a search row can be a lookalike.
 
-**Leave `DCA_CHAIN_ID` out unless your owner named a chain.** The chain flags on `acp trade`
-are optional and AGENTS.md § 7 says it outright: "If your owner did not name a chain, add no
-chain flag of any kind" — the trading agent resolves the token's own chain. Set it ONLY when
-they said one ("DCA into VIRTUAL on Solana"), by mapping that row's `networkLabel` through the
-chain-id table in AGENTS.md § 7 — **never `networkId`**, which is a search-index id and not a
-chain id. For a perp the Hyperliquid symbol is the id — put `BTC` / `xyz:AAPL` in `DCA_TOKEN`
-verbatim, do not search for it, and leave `DCA_CHAIN_ID` out.
+**Leave `DCA_CHAIN_ID` out unless your owner named a chain** — AGENTS.md § 7: "If your owner
+did not name a chain, add no chain flag of any kind"; the trading agent resolves the token's
+own chain. Set it only when they said one ("DCA into VIRTUAL on Solana"), mapping
+`networkLabel` through the chain-id table in AGENTS.md § 7 — **never `networkId`**, a
+search-index id, not a chain id. For a perp the Hyperliquid symbol is the id: put `BTC` /
+`xyz:AAPL` in `DCA_TOKEN` verbatim and leave `DCA_CHAIN_ID` out.
 
 Then get, in the owner's own words: the action, the size per run, the cadence, and any
 condition. Echo all four back before you file anything.
@@ -62,7 +63,7 @@ condition. Echo all four back before you file anything.
   1st and the 15th" are expressed; a 7-day interval drifts, a day filter does not.
 - `DCA_TIMEZONE` (default empty = UTC) — the IANA zone `DCA_DAYS` reads the calendar in. Set
   it whenever the owner named a weekday, or their Friday may be the duty's Thursday.
-- `DCA_MAX_PRICE` / `DCA_MIN_PRICE` (default 0 = off) — a price BAND, and both bounds apply to
+- `DCA_MAX_PRICE` / `DCA_MIN_PRICE` (default 0 = off) — a band on `DCA_TOKEN`'s own price; both apply to
   every gated action. `DCA_MAX_PRICE` is a ceiling ("only under $80k"), `DCA_MIN_PRICE` a floor
   ("only over $80k"); set both for "only between". A floor on a buy and a ceiling on a sell are
   ordinary asks, not mistakes. If a gate is set and the price cannot be read, the run is
@@ -74,20 +75,20 @@ condition. Echo all four back before you file anything.
   decides and places the trade itself. Every eligible run spends a wake, so this is for a
   condition that genuinely needs a brain ("only if the news isn't ugly").
 
-**A condition the knobs cannot express is not a dead end, and usually not an escalation
-either.** A MECHANICAL one — a candle close, a moving average, a second asset's price, an
-on-chain reading — is code, and code is free and runs every tick:
+**A condition the knobs cannot express is not a dead end.** A MECHANICAL one — a candle
+close, a moving average, a second asset's price, an on-chain reading — is code, and code is
+free and runs every tick:
 
 ```bash
 bevo-hub fork butler-dca
 ```
 
-That is your owner's own copy. Edit `duty.py` in it to compute the condition (the code stage
-may fetch any public HTTPS source and call `bevo.rpc`), add the knobs you need, and create from
-the fork with `bevo-automation create --from-skill <your-fork>`. The fork is never updated or
-overwritten by the hub, and everything that guards the money is unchanged by forking: the same
-sandbox, the same signing policy, the same approval cards, the same pocket. Tell your owner
-what you changed and why.
+Your owner's own copy. Edit `duty.py` in it to compute the condition — `bevo.read("/token-stats",
+{"tokens": "<address>:<chainId>"})` for another asset's price (gate a VIRTUAL buy on BTC that
+way), `bevo.rpc` for chain state, or any public HTTPS source — add the knobs you need, and
+create from the fork with `bevo-automation create --from-skill <your-fork>`. The hub never
+overwrites a fork, and forking changes nothing that guards the money. Tell your owner what you
+changed and why.
 
 Reach for `DCA_ESCALATE` when the condition needs judgment; fork when it needs computation.
 
@@ -138,17 +139,20 @@ Reach for `DCA_ESCALATE` when the condition needs judgment; fork when it needs c
    the two:
 
    ```json
-   [{"kind": "timer", "intervalSeconds": 604800}]
    [{"kind": "timer", "dailyAt": "09:00"}]
+   [{"kind": "timer", "intervalSeconds": 3600}]
    ```
+
+   Weekly and monthly are `dailyAt` plus `DCA_DAYS`, never an interval.
 
 3. [FIXED] `env` = the params above (skill defaults, then the owner's saved `bevo-hub set`
    prefs, then this ask's own values). A price gate with `DCA_ACTION` `perp-open` is refused:
    the mark price needs an open position, so that condition goes in `judgment` instead.
    Name any non-zero default you are leaving in place — `DCA_MIN_CASH_USD` is $25 and will
    skip runs the owner expected — or set it to 0 when they did not ask for a floor.
-4. [ADAPT] `requestedDailyLimitUsdc` = one run's USD (never less), and for a `sell` name the
-   token and quantity the pocket must cover; `yardstick` = "One `<action>` of `<size>` in
+4. [ADAPT] `requestedDailyLimitUsdc` = what a DAY of this cadence spends — one run's USD times
+   the runs a day holds (hourly $100 is $2400), never less: sized at one run, an hourly duty is
+   dead after its first trade. For a `sell` name the token and quantity the pocket must cover; `yardstick` = "One `<action>` of `<size>` in
    `<asset>` per `<cadence>`, only when `<condition>`, never twice for the same slot."
 5. [FIXED] Rehearse, then create — never hand-write the duty's code, the shim loads this
    skill's `duty.py`. The rehearse step is AGENTS.md section 5's ritual and applies to a
@@ -156,7 +160,7 @@ Reach for `DCA_ESCALATE` when the condition needs judgment; fork when it needs c
 
    ```bash
    bevo-automation rehearse '<json>'
-   bevo-automation create --from-skill butler-dca@1.2.1 '<json>'
+   bevo-automation create --from-skill butler-dca '<json>'
    ```
 
 6. [FIXED] Report as in "Say to the owner".
@@ -185,11 +189,9 @@ restarted duty maps to the key already used. Any error or uncertainty: `bevo-rea
 
 One asset, one direction, one cadence per duty — a second asset is a second duty. The band
 compares a spot price (or a mark, reducing a perp) against a fixed number: it knows nothing
-about candles, averages or indicators. A condition on one of those is not a knob — fork and
-compute it in `duty.py`, as "Customize" says. `DCA_ESCALATE` is for a condition that needs
-judgment, not for arithmetic a code stage does every tick for free. `DCA_DAYS` thins a cadence, it cannot create one —
-the trigger still has to fire that day. No price gate on `perp-open` (there is no position to read a mark price from; use `judgment`). Stocks
-are not covered. With `DCA_ESCALATE` on, a woken run counts against `DCA_MAX_RUNS` but a trade
+about candles, averages or indicators: that is a fork, as "Customize" says. `DCA_DAYS` thins
+a cadence, it cannot create one — the trigger still has to fire that day. No price gate on
+`perp-open`. Stocks are not covered. With `DCA_ESCALATE` on, a woken run counts against `DCA_MAX_RUNS` but a trade
 judgment places does not count against `DCA_TOTAL_BUDGET_USD` — that ceiling only meters what
 this skill's own code files. It never moves funds between the spot and perp accounts, and it never
 disables itself. Yanking this skill does not stop a duty already created from it (the duty
@@ -199,5 +201,5 @@ keeps its own copy of `duty.py`).
 
 One-off: "Filed one slice: `<action>` `<size>` of `<asset>`<` on <chain/venue>` only if one was named>. `<n>` slices
 and `$<x>` to go if this is a ladder." Duty: "Created, pending — arm it in Approvals; the card
-proposes a pocket of one run's size, and nothing runs until then. It fires `<cadence>`, skips
+proposes a pocket sized to a day of that cadence, and nothing runs until then. It fires `<cadence>`, skips
 a run when `<condition>` is not met, and stops after `<stop condition>`."
