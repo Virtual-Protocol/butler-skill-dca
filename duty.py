@@ -35,7 +35,12 @@ def _num(raw, default):
 
 ACTION = os.environ.get("DCA_ACTION", "buy").strip().lower()
 TOKEN = os.environ.get("DCA_TOKEN", "").strip()
-CHAIN_ID = os.environ.get("DCA_CHAIN_ID", "8453").strip()
+# Empty unless the owner named a chain. `acp trade`'s chain flags are
+# optional and AGENTS.md § 7 is explicit: "If your owner did not name a chain,
+# add no chain flag of any kind" — the trading agent resolves the token's own
+# chain. Defaulting this to Base pinned every plain "$200 of BTC every week"
+# to one deployment the owner never asked for.
+CHAIN_ID = os.environ.get("DCA_CHAIN_ID", "").strip()
 USD_PER_RUN = _num(os.environ.get("DCA_USD_PER_RUN", "25"), 25.0)
 SELL_QTY_PER_RUN = _num(os.environ.get("DCA_SELL_QTY_PER_RUN", "0"), 0.0)
 PERP_SIDE = os.environ.get("DCA_PERP_SIDE", "long").strip().lower()
@@ -240,18 +245,44 @@ def read_assets():
         return None
 
 
+def on_chain():
+    """" on chain <id>" for a message, or "" when no chain was named."""
+    return f" on chain {CHAIN_ID}" if CHAIN_ID else ""
+
+
+def buy_chain_flag():
+    """`--chain-out <id> ` for a buy, or "". Omitted unless the owner named a
+    chain, exactly as a chat trade omits it."""
+    return f"--chain-out {CHAIN_ID} " if CHAIN_ID else ""
+
+
+def sell_chain_flag(row):
+    """`--chain-in <id> ` for a sell. The quantity comes from ONE holdings
+    row, so the flag carries THAT row's chain — never a chain chosen from
+    elsewhere. Reading the chain off the row the size came from is what keeps
+    the two agreeing; it is not picking a chain for the owner."""
+    chain = str(row.get("chainId") or "").strip()
+    return f"--chain-in {chain} " if chain else ""
+
+
 def holding(assets):
-    """The DCA_TOKEN row on DCA_CHAIN_ID. A sell settles on ONE chain, so the
-    row is the sellable quantity — never a total summed across chains."""
+    """The DCA_TOKEN row a sell spends from. A sell settles on ONE chain, so
+    the row is the sellable quantity — never a total summed across chains.
+    With DCA_CHAIN_ID set, that is the row on that chain. With it empty the
+    owner named no chain: take the largest row, and the sell carries that
+    row's own chain."""
     spot = assets.get("spot") or {}
     if not spot.get("available"):
         return None
-    for row in spot.get("tokens") or []:
-        addr = str(row.get("tokenAddress") or "").lower()
-        same_chain = str(row.get("chainId") or "") == CHAIN_ID
-        if addr and addr == TOKEN.lower() and same_chain:
-            return row
-    return None
+    rows = [
+        row for row in spot.get("tokens") or []
+        if str(row.get("tokenAddress") or "").lower() == TOKEN.lower()
+    ]
+    if CHAIN_ID:
+        rows = [row for row in rows if str(row.get("chainId") or "") == CHAIN_ID]
+    if not rows:
+        return None
+    return max(rows, key=lambda row: _num(row.get("balance"), 0.0))
 
 
 def position(assets):
@@ -301,13 +332,13 @@ def plan(assets, key):
             return None, skip
         return (
             f"acp trade --token-in usdc --amount-in {fmt(usd)} "
-            f"--token-out {TOKEN} --chain-out {CHAIN_ID} --idempotency-key {key}"
+            f"--token-out {TOKEN} {buy_chain_flag()}--idempotency-key {key}"
         ), usd
 
     if ACTION == "sell":
         row = holding(assets)
         if row is None:
-            return None, f"nothing held on chain {CHAIN_ID} to sell"
+            return None, f"nothing held{on_chain()} to sell"
         price = spot_price(assets)
         skip = price_gate(price, "price")
         if skip:
@@ -324,9 +355,9 @@ def plan(assets, key):
             qty = USD_PER_RUN / price
         qty = min(qty, held)
         if qty <= 0:
-            return None, f"nothing left to sell on chain {CHAIN_ID}"
+            return None, f"nothing left to sell{on_chain()}"
         return (
-            f"acp trade --token-in {TOKEN} --chain-in {CHAIN_ID} "
+            f"acp trade --token-in {TOKEN} {sell_chain_flag(row)}"
             f"--amount-in {fmt(qty)} --token-out usdc --idempotency-key {key}"
         ), qty * (price or 0.0)
 

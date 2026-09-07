@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.3.0
+
+- **A chain is optional, and pinning one broke every plain DCA.** `DCA_CHAIN_ID` defaulted to
+  `8453`, so a duty always passed `--chain-out` / `--chain-in` — even when the owner said only
+  "buy $200 of BTC every week". The chain flags on `acp trade` are optional, and AGENTS.md § 7
+  is explicit: "If your owner did not name a chain, add no chain flag of any kind", because the
+  trading agent resolves the token's own chain and the same ticker on another chain is a
+  different asset. The knob now has NO default: leave it out and a buy carries no chain flag;
+  set it only when the owner named a chain.
+- **The pin also made the duty unfileable.** `bevo-automation`'s chain guard refuses a duty
+  whose chain narrowing the owner never asked for, so `create --from-skill butler-dca` was
+  refused outright for every plain "asset + amount + cadence" ask — the owner got no duty at
+  all. With the default gone there is nothing to refuse.
+- **A sell now carries the chain of the row it spends.** A sell settles on ONE chain, so the
+  quantity and the chain must agree. With `DCA_CHAIN_ID` set, `holding()` takes the row on that
+  chain as before. With it unset, it takes the LARGEST row and the sell passes that row's own
+  `chainId` — read off the data, never chosen for the owner.
+
 ## 1.2.1
 
 - **An hourly duty ran once a day.** `slot_for()` bucketed by `DCA_INTERVAL_SECONDS`, so a
