@@ -1,8 +1,8 @@
 ---
 name: butler-dca
 description: Trade one asset in slices on a repeating schedule — spot or perp, flat or % size, with price-band, weekday and stop conditions. DCA, ladder in, scale out.
-version: 1.2.1
-metadata: {"openclaw":{"emoji":"🪜","requires":{"bins":["acp","bevo-read","bevo-automation"]}},"butler":{"tier":"on-demand","modes":["one-off","duty"],"moneyMoving":true,"keywords":["dca","dollar cost average","average in","average out","ladder in","ladder out","scale in","scale out","accumulate","recurring","scheduled","periodic","tranches","drip","every hour","every day","every week","every month","weekly","daily","hourly"],"requires":{"routes":["GET /butler-read/user-assets","GET /butler-read/token-search","POST /butler-exec/trade","POST /butler-exec/services"],"features":["tradeIdempotency","execRequestStatus"],"gates":["canSwap"],"bins":["acp","bevo-read","bevo-automation"]},"params":[{"name":"DCA_TOKEN","type":"string","required":true,"ask":"which asset should I average — the token's contract address for a spot swap, or its Hyperliquid symbol (BTC, ETH) for a perp?"},{"name":"DCA_ACTION","type":"enum","values":["buy","sell","perp-open","perp-reduce"],"default":"buy"},{"name":"DCA_CHAIN_ID","type":"chainId","default":8453,"help":"spot legs only; ignored on perps"},{"name":"DCA_USD_PER_RUN","type":"usd","default":25,"min":2,"max":10000,"help":"USD per run for a buy, a perp open and a perp reduce; also sizes a sell when DCA_SELL_QTY_PER_RUN is 0"},{"name":"DCA_BUY_PCT_OF_CASH","type":"number","default":0,"min":0,"max":100,"help":"buy this % of available spot cash each run instead of a flat figure; 0 = use DCA_USD_PER_RUN"},{"name":"DCA_SELL_QTY_PER_RUN","type":"number","default":0,"min":0,"max":1000000000,"help":"token quantity per sell; 0 = fall through to DCA_SELL_PCT_PER_RUN, then to DCA_USD_PER_RUN at the live price"},{"name":"DCA_SELL_PCT_PER_RUN","type":"number","default":0,"min":0,"max":100,"help":"sell this % of the holding each run; used when DCA_SELL_QTY_PER_RUN is 0"},{"name":"DCA_PERP_SIDE","type":"enum","values":["long","short"],"default":"long"},{"name":"DCA_LEVERAGE","type":"number","default":2,"min":1,"max":20},{"name":"DCA_INTERVAL_SECONDS","type":"int","default":86400,"min":3600,"max":2592000},{"name":"DCA_DAILY_AT","type":"string","default":"","help":"HH:MM in the owner's local time; when set it is used instead of the interval"},{"name":"DCA_DAYS","type":"string","default":"","help":"run only on these days — weekday names and/or month-days, e.g. \"mon,fri\" or \"1,15\"; empty = every tick"},{"name":"DCA_TIMEZONE","type":"string","default":"","help":"IANA zone the day filter reads the calendar in, e.g. Asia/Kuala_Lumpur; empty = UTC"},{"name":"DCA_MAX_PRICE","type":"number","default":0,"min":0,"max":100000000,"help":"price CEILING — act only at or below it; 0 = off. Applies to buy, sell and perp-reduce"},{"name":"DCA_MIN_PRICE","type":"number","default":0,"min":0,"max":100000000,"help":"price FLOOR — act only at or above it; 0 = off. Applies to buy, sell and perp-reduce"},{"name":"DCA_MIN_CASH_USD","type":"usd","default":25,"min":0,"max":1000000,"help":"skip a buy that would leave less spot stablecoin cash than this"},{"name":"DCA_MAX_RUNS","type":"int","default":0,"min":0,"max":10000,"help":"stop after this many filed runs; 0 = no stop"},{"name":"DCA_TOTAL_BUDGET_USD","type":"usd","default":0,"min":0,"max":1000000,"help":"stop once this much USD has moved across all runs; 0 = no stop"},{"name":"DCA_ESCALATE","type":"bool","default":false,"help":"hand each eligible run to the duty's judgment text instead of trading directly"}],"dutyTemplate":"duty.py"}}
+version: 1.3.0
+metadata: {"openclaw":{"emoji":"🪜","requires":{"bins":["acp","bevo-read","bevo-automation"]}},"butler":{"tier":"on-demand","modes":["one-off","duty"],"moneyMoving":true,"keywords":["dca","dollar cost average","average in","average out","ladder in","ladder out","scale in","scale out","accumulate","recurring","scheduled","periodic","tranches","drip","every hour","every day","every week","every month","weekly","daily","hourly"],"requires":{"routes":["GET /butler-read/user-assets","GET /butler-read/token-search","POST /butler-exec/trade","POST /butler-exec/services"],"features":["tradeIdempotency","execRequestStatus"],"gates":["canSwap"],"bins":["acp","bevo-read","bevo-automation"]},"params":[{"name":"DCA_TOKEN","type":"string","required":true,"ask":"which asset should I average — the token's contract address for a spot swap, or its Hyperliquid symbol (BTC, ETH) for a perp?"},{"name":"DCA_ACTION","type":"enum","values":["buy","sell","perp-open","perp-reduce"],"default":"buy"},{"name":"DCA_CHAIN_ID","type":"chainId","help":"ONLY when your owner named a chain; leave it out otherwise and the trading agent resolves the token's own chain. Spot legs only; ignored on perps"},{"name":"DCA_USD_PER_RUN","type":"usd","default":25,"min":2,"max":10000,"help":"USD per run for a buy, a perp open and a perp reduce; also sizes a sell when DCA_SELL_QTY_PER_RUN is 0"},{"name":"DCA_BUY_PCT_OF_CASH","type":"number","default":0,"min":0,"max":100,"help":"buy this % of available spot cash each run instead of a flat figure; 0 = use DCA_USD_PER_RUN"},{"name":"DCA_SELL_QTY_PER_RUN","type":"number","default":0,"min":0,"max":1000000000,"help":"token quantity per sell; 0 = fall through to DCA_SELL_PCT_PER_RUN, then to DCA_USD_PER_RUN at the live price"},{"name":"DCA_SELL_PCT_PER_RUN","type":"number","default":0,"min":0,"max":100,"help":"sell this % of the holding each run; used when DCA_SELL_QTY_PER_RUN is 0"},{"name":"DCA_PERP_SIDE","type":"enum","values":["long","short"],"default":"long"},{"name":"DCA_LEVERAGE","type":"number","default":2,"min":1,"max":20},{"name":"DCA_INTERVAL_SECONDS","type":"int","default":86400,"min":3600,"max":2592000},{"name":"DCA_DAILY_AT","type":"string","default":"","help":"HH:MM in the owner's local time; when set it is used instead of the interval"},{"name":"DCA_DAYS","type":"string","default":"","help":"run only on these days — weekday names and/or month-days, e.g. \"mon,fri\" or \"1,15\"; empty = every tick"},{"name":"DCA_TIMEZONE","type":"string","default":"","help":"IANA zone the day filter reads the calendar in, e.g. Asia/Kuala_Lumpur; empty = UTC"},{"name":"DCA_MAX_PRICE","type":"number","default":0,"min":0,"max":100000000,"help":"price CEILING — act only at or below it; 0 = off. Applies to buy, sell and perp-reduce"},{"name":"DCA_MIN_PRICE","type":"number","default":0,"min":0,"max":100000000,"help":"price FLOOR — act only at or above it; 0 = off. Applies to buy, sell and perp-reduce"},{"name":"DCA_MIN_CASH_USD","type":"usd","default":25,"min":0,"max":1000000,"help":"skip a buy that would leave less spot stablecoin cash than this"},{"name":"DCA_MAX_RUNS","type":"int","default":0,"min":0,"max":10000,"help":"stop after this many filed runs; 0 = no stop"},{"name":"DCA_TOTAL_BUDGET_USD","type":"usd","default":0,"min":0,"max":1000000,"help":"stop once this much USD has moved across all runs; 0 = no stop"},{"name":"DCA_ESCALATE","type":"bool","default":false,"help":"hand each eligible run to the duty's judgment text instead of trading directly"}],"dutyTemplate":"duty.py"}}
 ---
 
 ## When to use
@@ -23,12 +23,16 @@ run, so never leave a bare ticker for the schedule to re-resolve:
 bevo-read token-search --q '$TICKER'
 ```
 
-Take `address` from the match the owner meant into `DCA_TOKEN`. For `DCA_CHAIN_ID`, map that
-row's `networkLabel` through the chain-id table in AGENTS.md § 7 — **never `networkId`**, which
-is a search-index id and not a chain id (AGENTS.md says so outright). (AGENTS.md § token search
-decides which match the owner meant.) For a perp the
-Hyperliquid symbol is the id — put `BTC` / `xyz:AAPL` in `DCA_TOKEN` verbatim, do not search
-for it, and leave `DCA_CHAIN_ID` alone.
+Take `address` from the match the owner meant into `DCA_TOKEN`. (AGENTS.md § token search
+decides which match the owner meant.)
+
+**Leave `DCA_CHAIN_ID` out unless your owner named a chain.** The chain flags on `acp trade`
+are optional and AGENTS.md § 7 says it outright: "If your owner did not name a chain, add no
+chain flag of any kind" — the trading agent resolves the token's own chain. Set it ONLY when
+they said one ("DCA into VIRTUAL on Solana"), by mapping that row's `networkLabel` through the
+chain-id table in AGENTS.md § 7 — **never `networkId`**, which is a search-index id and not a
+chain id. For a perp the Hyperliquid symbol is the id — put `BTC` / `xyz:AAPL` in `DCA_TOKEN`
+verbatim, do not search for it, and leave `DCA_CHAIN_ID` out.
 
 Then get, in the owner's own words: the action, the size per run, the cadence, and any
 condition. Echo all four back before you file anything.
@@ -37,7 +41,9 @@ condition. Echo all four back before you file anything.
 
 - `DCA_TOKEN` (required) — token address (spot) or Hyperliquid symbol (perp).
 - `DCA_ACTION` (default `buy`) — `buy` | `sell` | `perp-open` | `perp-reduce`.
-- `DCA_CHAIN_ID` (default `8453`) — the spot chain; a sell settles on this one chain.
+- `DCA_CHAIN_ID` (no default) — set it ONLY when your owner named a chain. Left out, a buy
+  passes no chain flag and a sell spends the largest holding row and carries that row's own
+  chain, because a sell settles on ONE chain and the quantity must match it.
 - `DCA_USD_PER_RUN` (default $25) — USD per buy, perp open and perp reduce.
 - `DCA_BUY_PCT_OF_CASH` (default 0 = off) — size a `buy` as a share of live spot cash instead
   of a flat figure ("10% of my cash each month"). It re-reads cash every run, so the slices
@@ -98,18 +104,19 @@ Reach for `DCA_ESCALATE` when the condition needs judgment; fork when it needs c
 
 3. [FIXED] Refuse the run, and say why, when: `spotUsdcUsd` is null (unknown is never zero);
    a `buy` would leave less than `DCA_MIN_CASH_USD`; a `sell` finds no holding of `DCA_TOKEN`
-   on `DCA_CHAIN_ID`; a `perp-reduce` finds no open position on that coin; the size is under
+   (on `DCA_CHAIN_ID` when one was named); a `perp-reduce` finds no open position on that coin; the size is under
    the venue minimum (spot $2, perp open $15 — a reduce has none); or a price gate is set and
    the price cannot be read.
 4. [FIXED] Size it: a `sell` is `DCA_SELL_QTY_PER_RUN`, else `DCA_USD_PER_RUN` ÷ the holding's
-   `usdPrice`, clamped to that one chain's `balance`; a `perp-reduce` is `DCA_USD_PER_RUN`
+   `usdPrice`, clamped to that one row's `balance`; a `perp-reduce` is `DCA_USD_PER_RUN`
    clamped to the position's `positionValueUsd`.
-5. [FIXED] Echo asset, chain, size and the conditions you checked to the owner, then file the
-   one leg for the action, keyed by the slot (today's date for a daily cadence):
+5. [FIXED] Echo asset, size and the conditions you checked to the owner (and the chain only if
+   one was named), then file the one leg for the action, keyed by the slot (today's date for a
+   daily cadence). The chain flags in brackets are omitted entirely when no chain was named:
 
    ```bash
-   acp trade --token-in usdc --amount-in <usd> --token-out <DCA_TOKEN> --chain-out <DCA_CHAIN_ID> --idempotency-key dca:chat:buy:<slot>
-   acp trade --token-in <DCA_TOKEN> --chain-in <DCA_CHAIN_ID> --amount-in <qty> --token-out usdc --idempotency-key dca:chat:sell:<slot>
+   acp trade --token-in usdc --amount-in <usd> --token-out <DCA_TOKEN> [--chain-out <DCA_CHAIN_ID>] --idempotency-key dca:chat:buy:<slot>
+   acp trade --token-in <DCA_TOKEN> [--chain-in <the holding row's chainId>] --amount-in <qty> --token-out usdc --idempotency-key dca:chat:sell:<slot>
    acp trade --side <DCA_PERP_SIDE> --token <DCA_TOKEN> --amount-usdc <usd> --leverage <n> --idempotency-key dca:chat:perp-open:<slot>
    acp trade --side <opposite of the position> --token <DCA_TOKEN> --amount-usdc <usd> --reduce-only --idempotency-key dca:chat:perp-reduce:<slot>
    ```
@@ -167,7 +174,7 @@ restarted duty maps to the key already used. Any error or uncertainty: `bevo-rea
 | Outcome | What to do |
 | --- | --- |
 | `spot.available` false or `spotUsdcUsd` null | Skip the run and log it; never read unknown as zero. |
-| `sell` and `DCA_TOKEN` is not held on `DCA_CHAIN_ID` | Skip; tell the owner the ladder has nothing left to sell on that chain. |
+| `sell` and `DCA_TOKEN` is not held (on `DCA_CHAIN_ID` when one was named) | Skip; tell the owner the ladder has nothing left to sell. |
 | `perp-reduce` and no open position on that coin | Skip and notify once; the ladder is finished. |
 | Price gate set and the price cannot be read | Skip the run — an unverified condition never trades. |
 | Run size under the venue minimum | Do not file; tell the owner the minimum ($2 spot, $15 perp open). |
@@ -190,7 +197,7 @@ keeps its own copy of `duty.py`).
 
 ## Say to the owner
 
-One-off: "Filed one slice: `<action>` `<size>` of `<asset>` on `<chain/venue>`. `<n>` slices
+One-off: "Filed one slice: `<action>` `<size>` of `<asset>`<` on <chain/venue>` only if one was named>. `<n>` slices
 and `$<x>` to go if this is a ladder." Duty: "Created, pending — arm it in Approvals; the card
 proposes a pocket of one run's size, and nothing runs until then. It fires `<cadence>`, skips
 a run when `<condition>` is not met, and stops after `<stop condition>`."
