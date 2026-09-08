@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.4.0
+
+**The Duty procedure now offers the fork it promised.** "Customize" has said since
+1.2.0 that a mechanical condition — a candle close, an indicator, a second asset's
+price — is a fork. The numbered steps Butler actually walks never said so: step 1
+offered a strict binary (a knob, or `judgment` via `DCA_ESCALATE`) and step 5 ended
+at "never hand-write the duty's code". So "buy $5k of BTC when the 15m candle closes
+above $85k" landed on `DCA_ESCALATE` — an LLM wake every run — instead of the fork
+that computes it in code.
+
+- Step 1 splits the leftover condition three ways: knob, fork when mechanical,
+  `judgment` only when it needs a brain.
+- Step 5 keeps "do not hand-write a duty" but names the fork as the other thing
+  `--from-skill` accepts.
+- "Limits" drops the scope line "When to use" already states verbatim, paying for the
+  body-length budget (the body is capped at 12,000 chars and was at 11,995).
+
 ## 1.3.1
 
 - **The pocket was sized for one run, not one day.** The duty procedure set
