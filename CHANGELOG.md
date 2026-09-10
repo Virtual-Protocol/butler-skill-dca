@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.4.1
+
+**A sell smaller than 8 decimal places went on the wire as `--amount-in 0`.** `fmt()`
+renders a CLI number at 8dp, so a positive quantity below `0.00000001` — a dust holding,
+or a small `DCA_SELL_PCT_PER_RUN` of one — became the literal string `0`, and the server
+answered with a parse error instead of a reason. `NaN` rendered as `nan` the same way. The
+SDK's own money verbs used to refuse this before building a command; those verbs are gone,
+so the duty refuses it itself.
+
+- New `sendable()` guards the two sizes the duty computes at runtime: the sell quantity and
+  the perp-reduce size. Both now skip the run with the reason they already carried
+  ("nothing left to sell", "no value left to reduce") instead of filing an unparseable
+  command. `0.00000001` still sends — the guard refuses what renders as nothing, not what
+  is merely small.
+- The buy and perp-open paths are unchanged: their spot and perp minimums already floor
+  them well above 8dp.
+
 ## 1.4.0
 
 **The Duty procedure now offers the fork it promised.** "Customize" has said since
