@@ -6,6 +6,7 @@ a restarted duty maps to a key that was already used and files nothing new.
 See SKILL.md for the procedure this code implements.
 """
 import json
+import math
 import os
 from datetime import datetime, timezone
 
@@ -86,6 +87,18 @@ def fmt(n):
     """A CLI number: never scientific notation, which the trade grammar cannot
     read back (0.00000012 must not become 1.2e-07)."""
     return f"{n:.8f}".rstrip("0").rstrip(".") or "0"
+
+
+def sendable(n):
+    """True when `n` survives fmt() as a real quantity. A size that is positive
+    but smaller than 8dp renders as "0", and a NaN renders as "nan" — both go on
+    the wire as a quantity the server answers with a parse error instead of a
+    reason. The SDK used to refuse these in sell()/stock_sell(); the verbs are
+    gone, so the duty refuses them itself."""
+    try:
+        return n > 0 and math.isfinite(n) and fmt(n) not in ("0", "-0")
+    except TypeError:
+        return False
 
 
 class State:
@@ -354,7 +367,7 @@ def plan(assets, key):
                 return None, "no price to size the sell from"
             qty = USD_PER_RUN / price
         qty = min(qty, held)
-        if qty <= 0:
+        if not sendable(qty):
             return None, f"nothing left to sell{on_chain()}"
         return (
             f"acp trade --token-in {TOKEN} {sell_chain_flag(row)}"
@@ -384,7 +397,7 @@ def plan(assets, key):
             return None, skip
         value = _num(pos.get("positionValueUsd"), 0.0)
         size = min(USD_PER_RUN, value)
-        if size <= 0:
+        if not sendable(size):
             return None, f"the {TOKEN} position has no value left to reduce"
         # Reducing is the OPPOSITE side of the position that is actually open —
         # never DCA_PERP_SIDE, and never without --reduce-only, which is what
