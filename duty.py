@@ -93,8 +93,7 @@ def sendable(n):
     """True when `n` survives fmt() as a real quantity. A size that is positive
     but smaller than 8dp renders as "0", and a NaN renders as "nan" — both go on
     the wire as a quantity the server answers with a parse error instead of a
-    reason. The SDK used to refuse these in sell()/stock_sell(); the verbs are
-    gone, so the duty refuses them itself."""
+    reason. Refuse rather than send one."""
     try:
         return n > 0 and math.isfinite(n) and fmt(n) not in ("0", "-0")
     except TypeError:
