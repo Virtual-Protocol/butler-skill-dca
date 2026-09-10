@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.4.2
+
+**Trimmed to just enough context.** SKILL.md is read into a fast model's prompt, where
+every char of explanation competes with a rule for attention. The capped body drops
+11,956 -> 9,858 chars (-17.5%), turning 44 chars of headroom under the 12,000 cap into
+2,142. Only explanation was cut — every knob, gate, refusal condition and command shape
+is unchanged, and all fenced command lines are byte-identical.
+
+- Cut WHY-clauses behind rules that already stated themselves absolutely, background
+  restated from AGENTS.md, and two real duplications: One-off step 3 re-listed the whole
+  Failure handling table, and Limits re-argued rules already carried by Customize.
+- `sendable()`'s docstring no longer explains itself by naming SDK functions that no
+  longer exist; the rule stands on its own.
+
 ## 1.4.1
 
 **A sell smaller than 8 decimal places went on the wire as `--amount-in 0`.** `fmt()`
