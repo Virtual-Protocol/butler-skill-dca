@@ -1,487 +1,155 @@
-"""butler-dca duty — one DCA slice per scheduled tick.
+"""Buy a fixed dollar amount of one token on a schedule.
 
-One asset, one direction, one cadence. The tick's schedule SLOT (not the
-moment it fired) is the idempotency key's source id, so a redelivered tick or
-a restarted duty maps to a key that was already used and files nothing new.
-See SKILL.md for the procedure this code implements.
+Dollar-cost averaging: the same size every fire, whatever the price. Each buy
+is keyed on the schedule SLOT rather than on the instant it fired, so a
+catch-up after a restart and the scheduled fire it is catching up on are one
+buy — bevo-server's ledger answers the second one `replay`.
+
+`MAX_PER_DAY` is a cap this duty keeps on itself, counted in UTC days inside
+its own state and surviving a restart. A duty that restarted should not get a
+fresh allowance.
+
+Settings: TOKEN (an address, or a symbol the rail can resolve), CHAIN_ID,
+SIZE_USD, MAX_PER_DAY.
 """
-import json
-import math
-import os
-from datetime import datetime, timezone
-
-try:  # stdlib since 3.9; a container without tzdata falls back to UTC
-    from zoneinfo import ZoneInfo
-except ImportError:  # pragma: no cover
-    ZoneInfo = None
 
 import bevo
+import json
+import os
+import re
+import subprocess
 
-STATE_PATH = "state.json"
-NOTES_PATH = "notified.json"
-MAX_SLOTS = 500
+PARAMS = json.loads(os.environ.get("PARAMS", "{}"))
 
+TOKEN = PARAMS.get("TOKEN")
+CHAIN_ID = PARAMS.get("CHAIN_ID")
+SIZE_USD = PARAMS.get("SIZE_USD") or 0
+MAX_PER_DAY = PARAMS.get("MAX_PER_DAY") or 24
+
+NAME = os.environ.get("BEVO_SERVICE_NAME") or "dca"
+
+#: The swap route's own minimum. A smaller leg comes back as a wire error the
+#: loop would read as an outage rather than as a decision.
 SPOT_MIN_USD = 2.0
-PERP_OPEN_MIN_USD = 15.0
+
+EVM_ADDRESS = re.compile(r"^0x[0-9a-fA-F]{40}$")
+SOLANA_ADDRESS = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
 
 
-def _num(raw, default):
-    """A param that arrived as text; a missing or unparsable value is the
-    skill's declared default, never a crash mid-schedule."""
-    try:
-        return float(raw)
-    except (TypeError, ValueError):
-        return default
+def fmt(number):
+    """Trim a float to something the CLI parses and a human can read."""
+    return ("%.8f" % float(number)).rstrip("0").rstrip(".")
 
 
-ACTION = os.environ.get("DCA_ACTION", "buy").strip().lower()
-TOKEN = os.environ.get("DCA_TOKEN", "").strip()
-# Empty unless the owner named a chain. `acp trade`'s chain flags are
-# optional and AGENTS.md § 7 is explicit: "If your owner did not name a chain,
-# add no chain flag of any kind" — the trading agent resolves the token's own
-# chain. Defaulting this to Base pinned every plain "$200 of BTC every week"
-# to one deployment the owner never asked for.
-CHAIN_ID = os.environ.get("DCA_CHAIN_ID", "").strip()
-USD_PER_RUN = _num(os.environ.get("DCA_USD_PER_RUN", "25"), 25.0)
-SELL_QTY_PER_RUN = _num(os.environ.get("DCA_SELL_QTY_PER_RUN", "0"), 0.0)
-PERP_SIDE = os.environ.get("DCA_PERP_SIDE", "long").strip().lower()
-LEVERAGE = _num(os.environ.get("DCA_LEVERAGE", "2"), 2.0)
-INTERVAL_SECONDS = int(_num(os.environ.get("DCA_INTERVAL_SECONDS", "86400"), 86400.0))
-DAILY_AT = os.environ.get("DCA_DAILY_AT", "").strip()
-MAX_PRICE = _num(os.environ.get("DCA_MAX_PRICE", "0"), 0.0)
-MIN_PRICE = _num(os.environ.get("DCA_MIN_PRICE", "0"), 0.0)
-BUY_PCT_OF_CASH = _num(os.environ.get("DCA_BUY_PCT_OF_CASH", "0"), 0.0)
-SELL_PCT_PER_RUN = _num(os.environ.get("DCA_SELL_PCT_PER_RUN", "0"), 0.0)
-DAYS = os.environ.get("DCA_DAYS", "").strip().lower()
-TIMEZONE = os.environ.get("DCA_TIMEZONE", "").strip()
-MIN_CASH_USD = _num(os.environ.get("DCA_MIN_CASH_USD", "25"), 25.0)
-MAX_RUNS = int(_num(os.environ.get("DCA_MAX_RUNS", "0"), 0.0))
-TOTAL_BUDGET_USD = _num(os.environ.get("DCA_TOTAL_BUDGET_USD", "0"), 0.0)
-ESCALATE = os.environ.get("DCA_ESCALATE", "false").strip().lower() in ("1", "true", "yes")
+def token_ref(value):
+    """What identifies the token on the wire.
+
+    An EVM address is lowercased, because two spellings of one address would
+    derive two idempotency keys — one intent becoming two buys. A Solana mint
+    is base58 and case-SENSITIVE, so it goes through verbatim.
+    """
+    text = str(value or "").strip()
+    if EVM_ADDRESS.match(text):
+        return text.lower()
+    if SOLANA_ADDRESS.match(text):
+        return text
+    return text.lstrip("$").upper()
 
 
-def label():
-    """What to call the asset in a note to the owner: a perp symbol as-is, an
-    address shortened — a 42-character hex string in a push notification is
-    noise, not information."""
-    if TOKEN.startswith("0x") and len(TOKEN) > 12:
-        return f"{TOKEN[:6]}\u2026{TOKEN[-4:]}"
-    return TOKEN or "this asset"
-
-
-def load_json(path, default):
-    if os.path.exists(path):
-        with open(path) as f:
-            return json.load(f)
-    return default
-
-
-def save_json(path, data):
-    tmp = path + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(data, f)
-    os.replace(tmp, path)
-
-
-def fmt(n):
-    """A CLI number: never scientific notation, which the trade grammar cannot
-    read back (0.00000012 must not become 1.2e-07)."""
-    return f"{n:.8f}".rstrip("0").rstrip(".") or "0"
-
-
-def sendable(n):
-    """True when `n` survives fmt() as a real quantity. A size that is positive
-    but smaller than 8dp renders as "0", and a NaN renders as "nan" — both go on
-    the wire as a quantity the server answers with a parse error instead of a
-    reason. Refuse rather than send one."""
-    try:
-        return n > 0 and math.isfinite(n) and fmt(n) not in ("0", "-0")
-    except TypeError:
-        return False
-
-
-class State:
-    """Slots already handled, plus what the ladder has done so far. The slot
-    list is the order of record (a set has none, so trimming one drops
-    arbitrary slots rather than the oldest)."""
-
-    def __init__(self, path):
-        self.path = path
-        data = load_json(path, {})
-        self.slots = list(data.get("slots", []))
-        self.member = set(self.slots)
-        self.runs = int(data.get("runs", 0))
-        self.moved_usd = float(data.get("moved_usd", 0.0))
-
-    def __contains__(self, slot):
-        return slot in self.member
-
-    def done(self, slot, ran=False, moved_usd=0.0):
-        if slot not in self.member:
-            self.slots.append(slot)
-            self.member.add(slot)
-            if len(self.slots) > MAX_SLOTS:
-                dropped = self.slots[: len(self.slots) - MAX_SLOTS]
-                self.slots = self.slots[-MAX_SLOTS:]
-                self.member.difference_update(dropped)
-        if ran:
-            self.runs += 1
-        self.moved_usd += moved_usd
-        save_json(self.path, {"slots": self.slots, "runs": self.runs, "moved_usd": self.moved_usd})
-
-
-class Notes:
-    """One note per reason — a schedule that hits the same wall every tick
-    must not spend the owner's notify budget on it every tick."""
-
-    def __init__(self, path):
-        self.path = path
-        self.ids = list(load_json(path, {}).get("ids", []))
-        self.member = set(self.ids)
-
-    def once(self, note_id, text):
-        if note_id in self.member:
-            return
-        self.ids.append(note_id)
-        self.member.add(note_id)
-        if len(self.ids) > MAX_SLOTS:
-            dropped = self.ids[: len(self.ids) - MAX_SLOTS]
-            self.ids = self.ids[-MAX_SLOTS:]
-            self.member.difference_update(dropped)
-        save_json(self.path, {"ids": self.ids})
-        bevo.notify(text)
-
-
-WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
-
-
-def price_gate(value, what):
-    """The price band, applied to EVERY gated action. `DCA_MIN_PRICE` is a
-    floor and `DCA_MAX_PRICE` a ceiling, and either may be set on a buy or a
-    sell — a floor on a buy is "only when it breaks above", a ceiling on a
-    sell is "only when it drops below". Returns a skip reason, or None.
-
-    An unreadable price with a gate set is always a SKIP: an unverified
-    condition never trades."""
-    if MIN_PRICE <= 0 and MAX_PRICE <= 0:
+def answer_of(text):
+    """The JSON `acp` printed, or None. None is NOT a refusal — see `filed()`."""
+    text = (text or "").strip()
+    if not text:
         return None
-    if not value:
-        return f"a price gate is set but the {what} could not be read"
-    if MIN_PRICE > 0 and value < MIN_PRICE:
-        return f"{what} ${fmt(value)} is below the ${fmt(MIN_PRICE)} floor"
-    if MAX_PRICE > 0 and value > MAX_PRICE:
-        return f"{what} ${fmt(value)} is above the ${fmt(MAX_PRICE)} ceiling"
-    return None
-
-
-def local_date(tick_at):
-    """The tick's calendar date in the duty's timezone (UTC when unset or
-    unknown). The day filter is a calendar question, so it must be asked in
-    the owner's calendar, not the server's."""
-    raw = str(tick_at or "")
     try:
-        fired = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        value = json.loads(text)
     except ValueError:
-        return None
-    if fired.tzinfo is None:
-        fired = fired.replace(tzinfo=timezone.utc)
-    if TIMEZONE and ZoneInfo is not None:
+        start = text.find("{")
+        if start < 0:
+            return None
         try:
-            return fired.astimezone(ZoneInfo(TIMEZONE)).date()
-        except Exception:
-            pass
-    return fired.astimezone(timezone.utc).date()
-
-
-def day_allowed(tick_at):
-    """`DCA_DAYS` accepts weekday names and month-days in one list:
-    "mon,fri" or "1,15" or "mon,15". Empty means every tick runs. A tick the
-    filter rejects is a quiet skip, not a failure — the cadence is the
-    trigger's, and this only thins it."""
-    if not DAYS:
-        return True, None
-    wanted = {d.strip()[:3] if d.strip()[:1].isalpha() else d.strip() for d in DAYS.split(",") if d.strip()}
-    day = local_date(tick_at)
-    if day is None:
-        return True, None  # unparsable tick: never silently stop the schedule
-    names = {WEEKDAYS[day.weekday()], str(day.day)}
-    if names & wanted:
-        return True, None
-    return False, f"{WEEKDAYS[day.weekday()]} {day.day} is not one of {DAYS}"
-
-
-def note_id_for(detail):
-    """The dedup id for a skip note. The reason TEXT carries live numbers
-    ("price $79454.0 is below…"), so using it raw minted a new id every tick
-    and `Notes.once` pushed on every one — 24 a day for an hourly duty parked
-    under its floor. The reason SHAPE is the reason: strip the digits."""
-    return "skip:" + "".join("#" if ch.isdigit() else ch for ch in str(detail))
-
-
-def slot_for(event):
-    """The schedule slot this tick belongs to. A daily cadence buckets by UTC
-    date, an interval one by interval index — both map a redelivered tick to
-    the SAME slot, which its raw timestamp never would.
-
-    The cadence comes from the TICK, not from the env. A timer event carries
-    the trigger's own `dailyAt` / `intervalSeconds`, and those are what the
-    schedule actually fires on. Reading the env here was a silent trap: an
-    hourly trigger left with the 86400 default bucketed all 24 ticks of a day
-    into ONE slot, so 23 of them were skipped as already done and the duty
-    quietly ran once a day. The env is only the fallback for a tick that
-    carries neither."""
-    if not isinstance(event, dict):
-        event = {"at": event}
-    raw = str(event.get("at") or "")
-    fired = None
-    if raw:
-        try:
-            fired = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            value, _ = json.JSONDecoder().raw_decode(text, start)
         except ValueError:
-            fired = None
-    if fired is None:
-        return raw or "unknown"
-    if fired.tzinfo is None:
-        fired = fired.replace(tzinfo=timezone.utc)
-    if event.get("dailyAt") or (DAILY_AT and not event.get("intervalSeconds")):
-        return fired.astimezone(timezone.utc).strftime("%Y-%m-%d")
-    step = int(_num(event.get("intervalSeconds"), 0.0)) or INTERVAL_SECONDS or 86400
-    return str(int(fired.timestamp()) // step)
+            return None
+    return value if isinstance(value, dict) else None
 
 
-def read_assets():
-    try:
-        return bevo.read("/user-assets")
-    except bevo.BevoError as exc:
-        bevo.log(f"dca: /user-assets unreadable ({exc}) — skipping this run")
-        return None
+def filed(args, key, sentence):
+    """Run one `acp trade` and read what it answered. Returns (ok, summary).
+
+    `--idempotency-key` is the last pair of the argv and is written out
+    literally, which is what makes a catch-up fire a replay the ledger
+    recognises rather than a second buy.
+
+    An unparseable answer is `unknown_outcome`, never "refused": the request
+    may have landed. `bevo.exec_status(key)` is the one way to find out, and
+    re-running with a NEW key is how one buy becomes two.
+    """
+    done = subprocess.run(
+        ["acp", "trade", *args, "--idempotency-key", key],
+        capture_output=True,
+        text=True,
+        timeout=180,
+        check=False,
+    )
+    answer = answer_of(done.stdout)
+    if answer is None:
+        state = (bevo.exec_status(key) or {}).get("state")
+        return False, (
+            "%s — outcome UNKNOWN, the rail said nothing readable (exec_status: %s). "
+            "Never re-run this with a new key." % (sentence, state)
+        )
+    if answer.get("executed"):
+        return True, "%s — executed" % sentence
+    if answer.get("asked"):
+        return True, "%s — waiting for your owner's approval" % sentence
+    if answer.get("ok"):
+        return True, "%s — accepted, executing now" % sentence
+    if answer.get("unrecognized"):
+        return False, (
+            "%s — the server answered %r, which this container does not recognise. "
+            "Do NOT report it as done." % (sentence, answer.get("status"))
+        )
+    return False, "%s — refused: %s" % (sentence, answer.get("error") or answer.get("status"))
 
 
-def on_chain():
-    """" on chain <id>" for a message, or "" when no chain was named."""
-    return f" on chain {CHAIN_ID}" if CHAIN_ID else ""
+def slot_key(slot):
+    """The slot, in the grammar an idempotency key allows.
+
+    `@` and `/` appear in a zoned slot (`2026-01-02T09:00@Asia/Singapore`)
+    and in nothing bevo-server's key pattern accepts, so they become `-`.
+    Every other character the slot can hold is already legal.
+    """
+    return str(slot).replace("@", "-").replace("/", "-")
 
 
-def buy_chain_flag():
-    """`--chain-out <id> ` for a buy, or "". Omitted unless the owner named a
-    chain, exactly as a chat trade omits it."""
-    return f"--chain-out {CHAIN_ID} " if CHAIN_ID else ""
+for tick in bevo.ticks():
+    if not TOKEN:
+        bevo.log("skipped: no TOKEN set")
+        continue
+    if tick.slot is None:
+        bevo.log("skipped: the fire carried no time, so there is no slot to key on")
+        continue
+    if SIZE_USD < SPOT_MIN_USD:
+        bevo.log(
+            "skipped %s: spot buys are $%s minimum and SIZE_USD is $%s"
+            % (tick.slot, fmt(SPOT_MIN_USD), fmt(SIZE_USD))
+        )
+        continue
 
+    # Consumed here, before the buy is attempted: the other order
+    # double-spends whenever the container dies between the rail answering
+    # and the counter being written.
+    if not bevo.allow("dca", per_day=MAX_PER_DAY, usd=SIZE_USD):
+        bevo.log("skipped %s: %d per day reached" % (tick.slot, MAX_PER_DAY))
+        continue
 
-def sell_chain_flag(row):
-    """`--chain-in <id> ` for a sell. The quantity comes from ONE holdings
-    row, so the flag carries THAT row's chain — never a chain chosen from
-    elsewhere. Reading the chain off the row the size came from is what keeps
-    the two agreeing; it is not picking a chain for the owner."""
-    chain = str(row.get("chainId") or "").strip()
-    return f"--chain-in {chain} " if chain else ""
-
-
-def holding(assets):
-    """The DCA_TOKEN row a sell spends from. A sell settles on ONE chain, so
-    the row is the sellable quantity — never a total summed across chains.
-    With DCA_CHAIN_ID set, that is the row on that chain. With it empty the
-    owner named no chain: take the largest row, and the sell carries that
-    row's own chain."""
-    spot = assets.get("spot") or {}
-    if not spot.get("available"):
-        return None
-    rows = [
-        row for row in spot.get("tokens") or []
-        if str(row.get("tokenAddress") or "").lower() == TOKEN.lower()
-    ]
-    if CHAIN_ID:
-        rows = [row for row in rows if str(row.get("chainId") or "") == CHAIN_ID]
-    if not rows:
-        return None
-    return max(rows, key=lambda row: _num(row.get("balance"), 0.0))
-
-
-def position(assets):
-    perps = assets.get("perps") or {}
-    if not perps.get("available"):
-        return None
-    for row in perps.get("positions") or []:
-        if str(row.get("coin") or "").lower() == TOKEN.lower():
-            return row
-    return None
-
-
-def spot_price(assets):
-    """The live price: the holding's own if the owner holds it, else the
-    token-search quote. None means unknown — the caller must not trade."""
-    row = holding(assets)
-    if row is not None and row.get("usdPrice") is not None:
-        return _num(row.get("usdPrice"), 0.0) or None
-    try:
-        body = bevo.read("/token-search", {"q": TOKEN})
-    except bevo.BevoError as exc:
-        bevo.log(f"dca: /token-search unreadable ({exc})")
-        return None
-    for hit in (body or {}).get("tokens") or []:
-        if str(hit.get("address") or "").lower() == TOKEN.lower():
-            price = _num(hit.get("priceUsd"), 0.0)
-            return price or None
-    return None
-
-
-def plan(assets, key):
-    """(command, usd this run moves) for this action, or (None, reason)."""
-    if ACTION == "buy":
-        cash = assets.get("spotUsdcUsd")
-        if cash is None:
-            return None, "spot cash could not be read"
-        # Size: a percentage of live cash when asked for, else the flat figure.
-        usd = USD_PER_RUN
-        if BUY_PCT_OF_CASH > 0:
-            usd = _num(cash, 0.0) * BUY_PCT_OF_CASH / 100.0
-        if _num(cash, 0.0) - usd < MIN_CASH_USD:
-            return None, f"a ${fmt(usd)} buy would leave under ${fmt(MIN_CASH_USD)} cash"
-        if usd < SPOT_MIN_USD:
-            return None, f"${fmt(usd)} is under the ${fmt(SPOT_MIN_USD)} spot minimum"
-        skip = price_gate(spot_price(assets), "price")
-        if skip:
-            return None, skip
-        return (
-            f"acp trade --token-in usdc --amount-in {fmt(usd)} "
-            f"--token-out {TOKEN} {buy_chain_flag()}--idempotency-key {key}"
-        ), usd
-
-    if ACTION == "sell":
-        row = holding(assets)
-        if row is None:
-            return None, f"nothing held{on_chain()} to sell"
-        price = spot_price(assets)
-        skip = price_gate(price, "price")
-        if skip:
-            return None, skip
-        held = _num(row.get("balance"), 0.0)
-        # Size, most explicit first: a token quantity, then a share of the
-        # holding, then a USD figure converted at the live price.
-        qty = SELL_QTY_PER_RUN
-        if qty <= 0 and SELL_PCT_PER_RUN > 0:
-            qty = held * SELL_PCT_PER_RUN / 100.0
-        if qty <= 0:
-            if not price:
-                return None, "no price to size the sell from"
-            qty = USD_PER_RUN / price
-        qty = min(qty, held)
-        if not sendable(qty):
-            return None, f"nothing left to sell{on_chain()}"
-        return (
-            f"acp trade --token-in {TOKEN} {sell_chain_flag(row)}"
-            f"--amount-in {fmt(qty)} --token-out usdc --idempotency-key {key}"
-        ), qty * (price or 0.0)
-
-    if ACTION == "perp-open":
-        if MAX_PRICE > 0 or MIN_PRICE > 0:
-            # No mark price exists until a position is open, and token-search
-            # has no Hyperliquid symbols — it would answer with an on-chain
-            # lookalike. The condition belongs in judgment, with DCA_ESCALATE.
-            return None, "a price gate on a perp open belongs in the duty's judgment, not a knob"
-        if USD_PER_RUN < PERP_OPEN_MIN_USD:
-            return None, f"${fmt(USD_PER_RUN)} is under the ${fmt(PERP_OPEN_MIN_USD)} perp minimum"
-        return (
-            f"acp trade --side {PERP_SIDE} --token {TOKEN} "
-            f"--amount-usdc {fmt(USD_PER_RUN)} --leverage {fmt(LEVERAGE)} --idempotency-key {key}"
-        ), USD_PER_RUN
-
-    if ACTION == "perp-reduce":
-        pos = position(assets)
-        if pos is None:
-            return None, f"no open position on {TOKEN} to reduce"
-        mark = _num(pos.get("markPriceUsd"), 0.0)
-        skip = price_gate(mark, "mark")
-        if skip:
-            return None, skip
-        value = _num(pos.get("positionValueUsd"), 0.0)
-        size = min(USD_PER_RUN, value)
-        if not sendable(size):
-            return None, f"the {TOKEN} position has no value left to reduce"
-        # Reducing is the OPPOSITE side of the position that is actually open —
-        # never DCA_PERP_SIDE, and never without --reduce-only, which is what
-        # keeps this from opening a fresh position the other way.
-        opposite = "short" if str(pos.get("side")) == "long" else "long"
-        return (
-            f"acp trade --side {opposite} --token {TOKEN} "
-            f"--amount-usdc {fmt(size)} --reduce-only --idempotency-key {key}"
-        ), size
-
-    return None, f"unknown action {ACTION!r}"
-
-
-def status_of(result):
-    """TradeResult exposes .status; the rehearsal/replay stub hands back the
-    raw dict — read whichever this is."""
-    status = getattr(result, "status", None)
-    if status is None and hasattr(result, "get"):
-        status = result.get("status")
-    return status
-
-
-def main():
-    state = State(STATE_PATH)
-    notes = Notes(NOTES_PATH)
-
-    for ev in bevo.events():
-        if ev.get("kind") != "timer":
-            continue
-
-        slot = slot_for(ev)
-        if slot in state:
-            continue
-
-        # The day filter thins the trigger's cadence: an hourly or daily timer
-        # becomes "only on these weekdays / month-days". A rejected tick closes
-        # its slot quietly — it is not a skipped run and never notifies.
-        allowed, why = day_allowed(ev.get("at"))
-        if not allowed:
-            bevo.log(f"dca slot={slot} not a scheduled day: {why}")
-            state.done(slot)
-            continue
-
-        if MAX_RUNS and state.runs >= MAX_RUNS:
-            notes.once("max-runs", f"DCA on {label()}: {state.runs} of {MAX_RUNS} runs done — disable it when you're ready.")
-            state.done(slot)
-            continue
-        if TOTAL_BUDGET_USD and state.moved_usd >= TOTAL_BUDGET_USD:
-            notes.once("budget", f"DCA on {label()}: ${fmt(state.moved_usd)} moved, its limit — disable it when you're ready.")
-            state.done(slot)
-            continue
-
-        assets = read_assets()
-        if assets is None:
-            continue  # unknown is not zero: leave the slot open for the next tick
-
-        key = f"dca:{bevo.SERVICE_ID}:{ACTION}:{slot}"
-        command, detail = plan(assets, key)
-        if command is None:
-            bevo.log(f"dca slot={slot} skipped: {detail}")
-            notes.once(note_id_for(detail), f"DCA on {label()} skipped a run: {detail}.")
-            state.done(slot)
-            continue
-
-        if ESCALATE:
-            # A condition the knobs cannot express: judgment decides and places
-            # the trade itself. Escalating spends a wake, so only eligible runs
-            # that already passed every numeric gate get here.
-            bevo.escalate(f"DCA slot {slot}: {ACTION} {TOKEN} — {command}", [dict(ev)])
-            state.done(slot, ran=True)
-            continue
-
-        result = bevo.trade(command=command, idempotency_key=key)
-        status = status_of(result)
-        bevo.log(f"dca slot={slot} action={ACTION} status={status} key={key}")
-
-        if status == "manual_signing_required":
-            notes.once(f"ask:{slot}", f"DCA on {label()}: this run needs your approval — it's in Approvals.")
-        elif status not in ("accepted", "executed"):
-            notes.once(f"refused:{status}", f"DCA on {label()} was refused ({status}) — the schedule keeps its next run.")
-
-        ok = status in ("accepted", "executed", "manual_signing_required")
-        # Every terminal status ends the slot: never loop on one tick.
-        state.done(slot, ran=ok, moved_usd=float(detail) if ok else 0.0)
-
-
-if __name__ == "__main__":
-    main()
+    ref = token_ref(TOKEN)
+    args = ["--token-in", "usdc", "--amount-in", fmt(SIZE_USD), "--token-out", ref]
+    if CHAIN_ID is not None:
+        args += ["--chain-out", str(CHAIN_ID)]
+    ok, summary = filed(args, "buy:%s:slot:%s" % (bevo.SERVICE_ID, slot_key(tick.slot)), "Buy %s" % ref)
+    if ok:
+        bevo.notify(("%s: %s" % (NAME, summary))[:500], quiet=True)
+    else:
+        bevo.log("skipped %s: %s" % (tick.slot, summary))

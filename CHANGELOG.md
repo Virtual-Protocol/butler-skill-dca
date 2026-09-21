@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.0.0
+
+**The skill became a template.** `SKILL.md` — the prose playbook, its numbered
+`[FIXED]`/`[ADAPT]` steps, and its 21 declared params — is gone. `duty.py` is now the
+whole execution: a duty filed from this repo runs this code directly, with no model
+turn interpreting a procedure around it. The bundle is `recipe.json` (id `dca`,
+version 2), `duty.py`, and this README; there is no frontmatter and nothing else at
+the root. (The old `1.4.2` version number counted the prose playbook, a different
+artefact — this reset starts the template's own line at `2.0.0`.)
+
+- Params drop from 21 (`DCA_TOKEN`, `DCA_ESCALATE`, …) to five: `TOKEN`, `CHAIN_ID`,
+  `SIZING`, `SIZE_USD`, `MAX_PER_DAY`. The rest configured a playbook a model read;
+  a program does not need them.
+- The retired `bevo.trade(command=…, idempotency_key=…)` and `bevo.escalate(...)`
+  calls — deleted from `bevo.py` on 2026-09-21 with no shim — are replaced by
+  `subprocess.run(["acp", "trade", …, "--idempotency-key", key])` and
+  `bevo.prompt()`.
+- A duty already filed from the old bundle keeps running its old stored code
+  unchanged; it does not auto-migrate. Re-file it (`duty_create` with
+  `recipe: "dca@2"`) to pick this up.
+
 ## 1.4.2
 
 **Trimmed to just enough context.** SKILL.md is read into a fast model's prompt, where
