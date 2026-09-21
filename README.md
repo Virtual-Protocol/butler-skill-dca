@@ -1,43 +1,44 @@
-# butler-skill-dca — buy a fixed amount of one token on a schedule
+Buys a fixed dollar amount of one token on a schedule, and nothing else.
 
-**This duty spends your money.** Every buy goes through the pocket you arm it
-with; a buy over that pocket's limit becomes an approval card instead.
+Each fire buys `SIZE_USD` of `TOKEN` at whatever the price is, then leaves a quiet
+note in the duty's thread. Dollar-cost averaging: the same size every time, so the
+size is the decision and the timing is not.
 
-## What it does
+## What it will not do
 
-One trigger, `timer` — either a time of day in your zone, or an interval:
+- **Look at the price.** There is no dip check, no condition, no "only if". An owner
+  who wants one is asking for a different duty — a `timer` whose code fetches the
+  figure itself and decides.
+- **Buy twice for one slot.** Every buy is keyed on the schedule *slot*, not the
+  instant it fired, so a catch-up after a restart and the fire it is catching up on
+  are one buy. The ledger answers the second one `replay`.
+- **Exceed `MAX_PER_DAY`**, however often the schedule fires. The cap is counted in
+  UTC days inside the duty's own state and survives a restart, so a duty that
+  restarted does not get a fresh allowance.
+- **Sell, ever.** It only buys.
+- **Spend before the owner funds it.** It spends through the pocket, which starts
+  empty; until it is funded every buy becomes an approval card.
+
+## Settings
+
+| Name | Unit | Default | Means |
+| --- | --- | --- | --- |
+| `TOKEN` | address or symbol | required | what to buy. An address is exact; a bare symbol is resolved by the rail and may land on a wrapper |
+| `SIZE_USD` | US dollars per buy | required | minimum 2 — the swap route's own floor, below which the leg comes back as a wire error |
+| `CHAIN_ID` | chain id | unset | which chain to buy on. Omit to let the rail choose |
+| `MAX_PER_DAY` | buys per UTC day | 24 | a ceiling the duty keeps on itself, independent of the schedule |
+| `SIZING` | — | `fixed` | fixed-size by definition; it takes no other value |
+
+`TOKEN` and `SIZE_USD` are the only two an owner must decide. `CHAIN_ID` is worth
+setting only when they named a chain, and `MAX_PER_DAY` only when they asked for a
+ceiling tighter than the schedule.
+
+## Trigger
+
+One `timer` — either a time of day in the owner's zone, or an interval:
 
 ```json
 { "kind": "timer", "dailyAt": "09:00", "timezone": "Asia/Singapore" }
 ```
 
-On each fire it buys `SIZE_USD` of `TOKEN`, then notes it quietly in this
-duty's thread. Nothing else: no price check, no "only if it dipped". If you
-want a condition, ask Butler to write the duty as code instead.
-
-## Settings
-
-| Name | Type | Default | Meaning |
-| --- | --- | --- | --- |
-| `TOKEN` | string | — (required) | an address, or a symbol the rail can resolve |
-| `CHAIN_ID` | integer | — | the chain to buy on; omit to let the rail choose |
-| `SIZING` | `"fixed"` | `fixed` | dollar-cost averaging is fixed-size by definition |
-| `SIZE_USD` | number | — (required) | dollars per buy |
-| `MAX_PER_DAY` | integer | `24` | at most this many buys a day, whatever the schedule says |
-
-## How it is used
-
-An owner asks their butler for recurring buys, and the butler files
-`duty_create {recipe: "dca@2", params: {...}}`.
-
-## What it will not do
-
-- Buy twice for one slot. Every buy is keyed on the schedule's **slot**, so a
-  catch-up fire after a restart and the fire it is catching up on are one buy,
-  never two.
-- Keep buying past `MAX_PER_DAY`, even if the schedule keeps firing — the cap
-  is a limit the duty keeps on itself in its own state, and it survives a
-  restart.
-- Spend anything before it is funded. The duty spends through the owner's
-  **pocket**, which starts empty and only the owner can fund — so an unfunded
-  duty asks before it buys.
+A `dailyAt` whose slot has already passed today fires today.
