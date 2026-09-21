@@ -9,7 +9,9 @@ The log is the duty's ledger. Every buy is written to it as a `requested`
 line, with its dollar value, BEFORE it is sent, and the daily caps are counted
 from those lines: `MAX_PER_DAY` buys and `MAX_USD_PER_DAY` dollars per UTC
 day. The log is on the duty's volume, so a duty that restarted does not get a
-fresh allowance.
+fresh allowance. A buy bevo-server refuses definitively, before executing it
+(a used-up pocket, a wallet that cannot cover it), writes a `released` line
+that takes its `requested` line back out of the count.
 
 Settings: TOKEN (an address, or a symbol the rail can resolve), CHAIN_ID,
 SIZE_USD, MAX_PER_DAY, MAX_USD_PER_DAY.
@@ -114,7 +116,20 @@ def filed(args, key, sentence):
             "%s — the server answered %r, which this container does not recognise. "
             "Do NOT report it as done." % (sentence, answer.get("status"))
         )
+    if answer.get("status") == "refused" and answer.get("code") in RELEASED_BY:
+        release(key)
+        return False, "%s — refused: %s (not counted toward today's caps)" % (
+            sentence,
+            answer.get("error") or answer.get("code"),
+        )
     return False, "%s — refused: %s" % (sentence, answer.get("error") or answer.get("status"))
+
+
+#: `code`s bevo-server documents as a DEFINITIVE, pre-execution refusal: nothing
+#: executed and nothing reserved, so the ledger line this duty wrote before sending
+#: can be released. Never a 409 (in flight), a timeout, or an unparseable answer —
+#: those may have landed, and releasing one of those could double-spend.
+RELEASED_BY = frozenset({"pocket_empty", "wallet_short"})
 
 
 # ── the ledger: what this duty has asked for, from its own log ───────────────
@@ -132,6 +147,13 @@ REQUESTED = re.compile(
     r" key=(\S+) route=(\S+) usd=(\d+(?:\.\d+)?)\s*$"
 )
 
+#: A ledger line, only ever written by `release()`. Marks a `requested` key as
+#: refused before it executed, so `requested()` must not count it.
+RELEASED = re.compile(
+    r"^(?:\d{4}-\d{2}-\d{2}T[\d:.]+Z )?released (\d{4}-\d{2}-\d{2})T\d{2}:\d{2}:\d{2}Z"
+    r" key=(\S+)\s*$"
+)
+
 #: The supervisor's stamp at the start of a log line.
 LOG_STAMP = re.compile(r"^(\d{4}-\d{2}-\d{2})T")
 
@@ -146,7 +168,8 @@ def say(text):
 
     An error the rail echoed is untrusted text, and a newline inside it would
     start a line of its own — one that could read as a ledger entry. Only
-    `record()` may begin a line with `requested`.
+    `record()` may begin a line with `requested`, and only `release()` may
+    begin a line with `released`.
     """
     bevo.log(" ".join(str(text).split()))
 
@@ -176,6 +199,11 @@ def requested(today):
                     if match:
                         day, key, route, usd = match.groups()
                         ledger.setdefault(key, (day, route, float(usd)))
+                        continue
+                    match = RELEASED.match(line)
+                    if match:
+                        _, key = match.groups()
+                        ledger.pop(key, None)
         except OSError:
             continue
     for key, row in SENT.items():
@@ -228,6 +256,21 @@ def record(key, usd):
         % (time.strftime("%Y-%m-%dT%H:%M:%SZ", now), key, fmt(usd))
     )
     return None
+
+
+def release(key):
+    """Undo `record()`: the server refused the buy before executing it.
+
+    Only called for a code in `RELEASED_BY` — a refusal the server documents as
+    definitive and pre-execution, so nothing was spent and nothing reserved. The
+    key is free to count again if it is re-requested (on its new day).
+    """
+    if not re.fullmatch(r"\S+", key):
+        return
+    bevo.log(
+        "released %s key=%s" % (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), key)
+    )
+    SENT.pop(key, None)
 
 
 def slot_key(slot):

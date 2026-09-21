@@ -1,5 +1,25 @@
 # Changelog
 
+## 4.0.0
+
+**A buy the server refuses before executing it no longer counts toward the daily
+caps.** bevo-server now refuses a buy DEFINITIVELY — nothing executed, nothing
+reserved — when the pocket the owner funded is used up (`code: "pocket_empty"`) or,
+next, when the owner's wallet can't cover a buy the pocket could (`code:
+"wallet_short"`). The duty's ledger line is still written *before* the buy is sent
+(unchanged — the other order double-spends), so without this the day's count or
+dollar cap could be burned by refusals alone, and a same-day top-up would not resume
+buying until the next UTC day.
+
+- New ledger line, `released <UTC time> key=<idempotency key>`, written only for a
+  refusal whose `code` is one of `pocket_empty` / `wallet_short` — never for a 409
+  (in flight, outcome unknown), a timeout, or an unparseable answer, any of which may
+  already have landed.
+- `requested()` walks the log in order and pops a key on its `released` line, so a
+  key released this way is free to count again if it is re-requested.
+- `recipe.json` goes to version 4 and supersedes `dca@3`. A duty already filed from
+  `dca@3` keeps its stored code; re-file it to pick this up.
+
 ## 3.0.0
 
 **Daily caps, counted from the duty's own log.** Before each buy the duty logs
