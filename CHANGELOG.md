@@ -1,5 +1,26 @@
 # Changelog
 
+## 3.0.0
+
+**Daily caps, counted from the duty's own log.** Before each buy the duty logs
+`requested <UTC time> key=<idempotency key> route=buy usd=<size>` through `bevo.log()`,
+and the caps count the distinct keys on today's (UTC) lines of `duty.log` /
+`duty.log.1`, which the supervisor writes on the duty's volume. `bevo.allow()`'s
+counter in `bevo.state` is no longer used.
+
+- New `MAX_USD_PER_DAY` (unset by default): a dollar ceiling on the day's buys,
+  beside `MAX_PER_DAY`. A buy that would cross it is skipped — the size is fixed.
+- A catch-up of a slot already requested is re-sent under the same key (the ledger
+  answers `replay`) and no longer spends a second allowance.
+- Written before the buy is sent, as before: a refused buy still counts, and a crash
+  between the rail answering and the line landing cannot double-spend.
+- When the rotated log starts after midnight UTC, today's earliest lines may be gone,
+  so the duty skips the buy instead of undercounting.
+- Every other log line is flattened onto one line, so text the rail echoes back can
+  never write a ledger entry.
+- `recipe.json` goes to version 3 and supersedes `dca@2`. A duty already filed from
+  `dca@2` keeps its stored code; re-file it to pick this up.
+
 ## 2.0.0
 
 **The skill became a template.** `SKILL.md` — the prose playbook, its numbered

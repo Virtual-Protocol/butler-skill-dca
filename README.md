@@ -12,9 +12,11 @@ size is the decision and the timing is not.
 - **Buy twice for one slot.** Every buy is keyed on the schedule *slot*, not the
   instant it fired, so a catch-up after a restart and the fire it is catching up on
   are one buy. The ledger answers the second one `replay`.
-- **Exceed `MAX_PER_DAY`**, however often the schedule fires. The cap is counted in
-  UTC days inside the duty's own state and survives a restart, so a duty that
-  restarted does not get a fresh allowance.
+- **Exceed its daily caps**, however often the schedule fires. Each buy is logged with
+  its dollar value *before* it is sent, and `MAX_PER_DAY` / `MAX_USD_PER_DAY` count
+  today's (UTC) lines, so a restart resets nothing. A catch-up of a slot already
+  requested goes out under the same key and is not counted twice; a refused buy still
+  counts. If the log no longer reaches back to midnight, the buy is skipped.
 - **Sell, ever.** It only buys.
 - **Spend before the owner funds it.** It spends through the pocket, which starts
   empty; until it is funded every buy becomes an approval card.
@@ -27,11 +29,12 @@ size is the decision and the timing is not.
 | `SIZE_USD` | US dollars per buy | required | minimum 2 — the swap route's own floor, below which the leg comes back as a wire error |
 | `CHAIN_ID` | chain id | unset | which chain to buy on. Omit to let the rail choose |
 | `MAX_PER_DAY` | buys per UTC day | 24 | a ceiling the duty keeps on itself, independent of the schedule |
+| `MAX_USD_PER_DAY` | US dollars per UTC day | unset | a dollar ceiling on the day's buys. Set only when the owner named one |
 | `SIZING` | — | `fixed` | fixed-size by definition; it takes no other value |
 
 `TOKEN` and `SIZE_USD` are the only two an owner must decide. `CHAIN_ID` is worth
-setting only when they named a chain, and `MAX_PER_DAY` only when they asked for a
-ceiling tighter than the schedule.
+setting only when they named a chain, and `MAX_PER_DAY` / `MAX_USD_PER_DAY` only when they
+asked for a ceiling tighter than the schedule.
 
 ## Trigger
 
