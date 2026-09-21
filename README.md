@@ -16,7 +16,10 @@ size is the decision and the timing is not.
   its dollar value *before* it is sent, and `MAX_PER_DAY` / `MAX_USD_PER_DAY` count
   today's (UTC) lines, so a restart resets nothing. A catch-up of a slot already
   requested goes out under the same key and is not counted twice; a refused buy still
-  counts. If the log no longer reaches back to midnight, the buy is skipped.
+  counts. If the log no longer reaches back to midnight, the buy is skipped. The one
+  exception: a buy the server refuses before executing it because the pocket is used
+  up or the wallet can't cover it does not count, so a top-up resumes buying the same
+  day.
 - **Sell, ever.** It only buys.
 - **Spend before the owner funds it.** It spends through the pocket, which starts
   empty; until it is funded every buy becomes an approval card.
