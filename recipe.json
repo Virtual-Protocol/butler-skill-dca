@@ -1,0 +1,42 @@
+{
+  "id": "dca",
+  "version": 2,
+  "description": "Buy a fixed dollar amount of one token on a schedule.",
+  "keywords": ["dca", "average", "averaging", "schedule", "recurring", "buy", "daily", "weekly"],
+  "triggers": ["timer"],
+  "supersedes": ["dca@1"],
+  "keys": ["buy:<duty>:slot:<slot>"],
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["TOKEN", "SIZE_USD"],
+    "properties": {
+      "TOKEN": {
+        "type": "string",
+        "minLength": 1,
+        "description": "an address, or a symbol the rail can resolve"
+      },
+      "CHAIN_ID": {
+        "type": "integer",
+        "description": "the chain to buy on; omit to let the rail choose"
+      },
+      "SIZING": {
+        "const": "fixed",
+        "default": "fixed",
+        "description": "dollar-cost averaging is fixed-size by definition"
+      },
+      "SIZE_USD": {
+        "type": "number",
+        "minimum": 2,
+        "maximum": 10000,
+        "description": "dollars per buy"
+      },
+      "MAX_PER_DAY": {
+        "type": "integer",
+        "minimum": 1,
+        "default": 24,
+        "description": "at most this many buys a day, whatever the schedule says"
+      }
+    }
+  }
+}
