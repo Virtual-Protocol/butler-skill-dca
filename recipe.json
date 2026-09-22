@@ -1,10 +1,10 @@
 {
   "id": "dca",
-  "version": 5,
-  "description": "Buy a fixed dollar amount of one token on a schedule.",
-  "keywords": ["dca", "average", "averaging", "schedule", "recurring", "buy", "daily", "weekly"],
+  "version": 6,
+  "description": "Buy a fixed dollar amount of one token or tokenized stock on a schedule.",
+  "keywords": ["dca", "average", "averaging", "schedule", "recurring", "buy", "daily", "weekly", "stock"],
   "triggers": ["timer"],
-  "supersedes": ["dca@1", "dca@2", "dca@3", "dca@4"],
+  "supersedes": ["dca@1", "dca@2", "dca@3", "dca@4", "dca@5"],
   "keys": ["buy:<duty>:slot:<slot>"],
   "params": {
     "type": "object",
@@ -14,11 +14,18 @@
       "TOKEN": {
         "type": "string",
         "minLength": 1,
-        "description": "an address, or a symbol the rail can resolve"
+        "maxLength": 44,
+        "description": "the token as the owner named it: a ticker (VIRTUAL, ETH, TSLA) or the address they gave. The title shows it. A crypto ticker also needs ADDRESS and CHAIN_ID, and ETH needs CHAIN_ID. If the owner named no chain and gave no address, ask them to pick on a card listing each token-search match by name, chain and address, plus a tile to paste their own — even with one match, because token-search leaves unverified tokens out. A tokenized stock is its ticker alone"
+      },
+      "ADDRESS": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 44,
+        "description": "the contract address of a crypto TOKEN named by ticker, on CHAIN_ID (a Solana mint verbatim). Not set for an address TOKEN, for ETH, BNB or SOL, or for a tokenized stock"
       },
       "CHAIN_ID": {
         "type": "integer",
-        "description": "the chain to buy on; omit to let the rail choose"
+        "description": "the chain of a crypto token or coin, as a numeric id: Base 8453, Ethereum 1, BSC 56, Arbitrum 42161, Robinhood 4663, Solana 1151111081099710. A tokenized stock takes none — the rail buys it on the venue that returns the most shares"
       },
       "SIZING": {
         "const": "fixed",

@@ -1,5 +1,34 @@
 # Changelog
 
+## 6.0.0
+
+**Every buy is one exact shape, and a crypto ticker is pinned to the contract and chain
+the owner meant.** Before, a bare ticker went to the rail on every fire. The rail
+bought whichever deployment it ranked first, which could be a wrapper or a lookalike
+on another chain, and the pick could change from one fire to the next.
+
+- New `ADDRESS` setting: the contract behind a crypto `TOKEN` named by ticker, on
+  `CHAIN_ID`. `TOKEN` stays what the owner named, a ticker or an address, so the
+  title and every note show the symbol, or the address when the owner gave one.
+- `duty.py` buys only these shapes:
+  - a contract (`ADDRESS`, or an address `TOKEN`) on a chain of its own kind. A mint
+    implies Solana, and a `0x…` address needs a `CHAIN_ID`.
+  - `ETH` / `BNB` / `SOL` on a chain whose coin it is. `BNB` and `SOL` imply their
+    chain, and `ETH` needs a `CHAIN_ID`.
+  - a tokenized stock: any other ticker with no `ADDRESS` and no `CHAIN_ID`. It is
+    bought in the stock shape (`--token <SYM> --amount-usdc`), which the rail routes to
+    the venue that returns the most shares.
+- A ticker with a `CHAIN_ID` but no `ADDRESS` buys nothing. On a named chain the
+  server's alias and unverified-ticker checks are switched off (they only look at a
+  leg with no address and no chain), so the chain alone would not pin the token.
+  Anything that fits no shape buys nothing too. The owner gets one note when the
+  program starts, and each fire logs the reason.
+- The setting descriptions tell Butler to resolve a crypto ticker with token-search.
+  When several matches fit, the owner picks one from a card that shows each match's
+  name, chain and address. One clear match needs no card.
+- `recipe.json` goes to version 6 and supersedes `dca@5`. `description` and
+  `keywords` now mention stocks.
+
 ## 5.0.0
 
 **The daily caps are gone.** `MAX_PER_DAY` and `MAX_USD_PER_DAY` are removed, and
