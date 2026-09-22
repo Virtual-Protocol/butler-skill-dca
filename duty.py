@@ -5,11 +5,15 @@ is keyed on the schedule SLOT rather than on the instant it fired, so a
 catch-up after a restart and the scheduled fire it is catching up on are one
 buy — bevo-server's ledger answers the second one `replay`.
 
+It buys exactly the token the owner confirmed, on the chain they confirmed,
+and resolves nothing itself: TOKEN is a contract address and every buy
+carries CHAIN_ID. A ticker buys nothing — see `unconfirmed()`.
+
 The program keeps no count of its own. What it may spend without asking is
 the pocket the owner funds in the app, and bevo-server holds that line.
 
-Settings: TOKEN (an address, or a symbol the rail can resolve), CHAIN_ID,
-SIZE_USD.
+Settings: TOKEN (a contract address, or ETH / BNB / SOL for a chain's own
+coin), CHAIN_ID, SIZE_USD.
 """
 
 import bevo
@@ -33,6 +37,18 @@ SPOT_MIN_USD = 2.0
 EVM_ADDRESS = re.compile(r"^0x[0-9a-fA-F]{40}$")
 SOLANA_ADDRESS = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
 
+#: Solana's id on the rail — the one chain a mint can live on.
+SOLANA_CHAIN_ID = 1151111081099710
+
+#: A chain's own coin has no contract address, so it goes by its ticker — but
+#: only on a chain where that ticker IS the native coin. On any other chain the
+#: same ticker is a bridged token, which has an address of its own.
+NATIVE_CHAINS = {
+    "ETH": (1, 8453, 42161, 4663),
+    "BNB": (56,),
+    "SOL": (SOLANA_CHAIN_ID,),
+}
+
 
 def fmt(number):
     """Trim a float to something the CLI parses and a human can read."""
@@ -52,6 +68,38 @@ def token_ref(value):
     if SOLANA_ADDRESS.match(text):
         return text
     return text.lstrip("$").upper()
+
+
+def unconfirmed(token, chain):
+    """Why TOKEN on CHAIN_ID is not one exact token, or None when it is.
+
+    A ticker is not a token: the rail resolves one to whichever deployment it
+    ranks first, which can be a wrapper or a lookalike, and can change from
+    one fire to the next. An address names one deployment, and only on a
+    chain of its own kind — a mint lives on Solana, a 0x address never does.
+    """
+    text = str(token or "").strip()
+    if not text:
+        return "no TOKEN set"
+    if chain is None:
+        return "no CHAIN_ID set"
+    if EVM_ADDRESS.match(text):
+        if chain == SOLANA_CHAIN_ID:
+            return "TOKEN %s is an EVM address, but CHAIN_ID is Solana" % text
+        return None
+    if SOLANA_ADDRESS.match(text):
+        if chain != SOLANA_CHAIN_ID:
+            return "TOKEN %s is a Solana mint, but CHAIN_ID is %s" % (text, chain)
+        return None
+    ticker = text.lstrip("$").upper()
+    if ticker in NATIVE_CHAINS:
+        if chain in NATIVE_CHAINS[ticker]:
+            return None
+        return "%s is not chain %s's own coin, so it needs its address on that chain" % (
+            ticker,
+            chain,
+        )
+    return "TOKEN %s is a ticker, not a contract address" % text
 
 
 def answer_of(text):
@@ -131,9 +179,17 @@ def slot_key(slot):
     return str(slot).replace("@", "-").replace("/", "-")
 
 
+PROBLEM = unconfirmed(TOKEN, CHAIN_ID)
+if PROBLEM:
+    # Said once, when the program starts: every fire would say the same thing,
+    # and nothing but a settings change from the owner can fix it.
+    bevo.notify(
+        "%s buys nothing until its token and chain are confirmed: %s." % (NAME, PROBLEM)
+    )
+
 for tick in bevo.ticks():
-    if not TOKEN:
-        say("skipped: no TOKEN set")
+    if PROBLEM:
+        say("skipped %s: %s" % (tick.slot, PROBLEM))
         continue
     if tick.slot is None:
         say("skipped: the fire carried no time, so there is no slot to key on")
@@ -147,9 +203,10 @@ for tick in bevo.ticks():
 
     key = "buy:%s:slot:%s" % (bevo.SERVICE_ID, slot_key(tick.slot))
     ref = token_ref(TOKEN)
-    args = ["--token-in", "usdc", "--amount-in", fmt(SIZE_USD), "--token-out", ref]
-    if CHAIN_ID is not None:
-        args += ["--chain-out", str(CHAIN_ID)]
+    args = [
+        "--token-in", "usdc", "--amount-in", fmt(SIZE_USD),
+        "--token-out", ref, "--chain-out", str(CHAIN_ID),
+    ]
     ok, summary = filed(args, key, "Buy %s" % ref)
     if ok:
         bevo.notify(("%s: %s" % (NAME, summary))[:500], quiet=True)

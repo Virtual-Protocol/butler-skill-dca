@@ -1,24 +1,25 @@
 {
   "id": "dca",
-  "version": 5,
+  "version": 6,
   "description": "Buy a fixed dollar amount of one token on a schedule.",
   "keywords": ["dca", "average", "averaging", "schedule", "recurring", "buy", "daily", "weekly"],
   "triggers": ["timer"],
-  "supersedes": ["dca@1", "dca@2", "dca@3", "dca@4"],
+  "supersedes": ["dca@1", "dca@2", "dca@3", "dca@4", "dca@5"],
   "keys": ["buy:<duty>:slot:<slot>"],
   "params": {
     "type": "object",
     "additionalProperties": false,
-    "required": ["TOKEN", "SIZE_USD"],
+    "required": ["TOKEN", "CHAIN_ID", "SIZE_USD"],
     "properties": {
       "TOKEN": {
         "type": "string",
-        "minLength": 1,
-        "description": "an address, or a symbol the rail can resolve"
+        "minLength": 3,
+        "maxLength": 44,
+        "description": "which token, exactly: the contract address the owner picked from a card listing each match's name, chain and address — a Solana mint verbatim, or ETH, BNB or SOL for a chain's own coin. A ticker buys nothing"
       },
       "CHAIN_ID": {
         "type": "integer",
-        "description": "the chain to buy on; omit to let the rail choose"
+        "description": "the chain the owner confirmed TOKEN on, picked on the same card, as a numeric id: Base 8453, Ethereum 1, BSC 56, Arbitrum 42161, Robinhood 4663, Solana 1151111081099710"
       },
       "SIZING": {
         "const": "fixed",

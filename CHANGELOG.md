@@ -1,5 +1,35 @@
 # Changelog
 
+## 6.0.0
+
+**The token and the chain are confirmed with the owner, not resolved by the rail.**
+`CHAIN_ID` is now required, so `recipe_show` lists it under `decide` beside `TOKEN`
+and `SIZE_USD`. Both settings' descriptions say what the owner confirms: the match
+they picked from a card showing each one's name, chain and address. `TOKEN` is that
+match's contract address. Every buy now carries `--chain-out`.
+
+Before this, a bare ticker went to the rail on every fire. The rail buys whichever
+deployment it ranks first, which can be a wrapper or a lookalike on another chain,
+and the pick can change from one fire to the next. With `--chain-out` set, a ticker
+also skips the server's alias and unverified-ticker checks. Those checks only look
+at a leg that has no address and no chain.
+
+- `duty.py` buys only a contract address whose kind matches `CHAIN_ID` (a `0x…`
+  address never on Solana, a mint only on Solana), or a chain's own coin by its
+  ticker on that chain: `ETH` on 1 / 8453 / 42161 / 4663, `BNB` on 56, `SOL` on
+  Solana. Anything else buys nothing. The owner gets one note when the program
+  starts, and each fire logs the reason.
+- `TOKEN` is 3–44 characters. `ETH` is the shortest value it takes, and a Solana
+  mint of 44 characters is the longest. Prose stuffed into the field is refused at
+  filing.
+- A tokenized stock is no longer bought on its venue. A stock ticker such as `TSLA`
+  used to be rerouted to the stock body. Now the ticker buys nothing, and an address
+  pins the buy to the on-chain token.
+- `recipe.json` goes to version 6 and supersedes `dca@5`. A duty already filed from
+  `dca@3`–`dca@5` keeps its stored code. A settings change to one of those duties is
+  now checked against `dca@6`'s schema, so it needs `CHAIN_ID`. Re-file the duty to
+  pick up this code.
+
 ## 5.0.0
 
 **The daily caps are gone.** `MAX_PER_DAY` and `MAX_USD_PER_DAY` are removed, and
