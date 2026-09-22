@@ -19,8 +19,9 @@ It resolves nothing itself. Every buy is one exact shape, read from the settings
 A mint lives only on Solana, so it needs no `CHAIN_ID`; nor do `BNB` (BSC) and `SOL`.
 `ETH` is the own coin of Ethereum, Base, Arbitrum and Robinhood, so it needs one.
 
-When the owner's words fit more than one token or chain, the settings hold the match
-they picked, shown to them with its name, chain and address. Anything looser buys
+When the owner named no chain and gave no address, the settings hold the match they
+picked on a card, each shown with its name, chain and address. One search result is
+not taken as the answer: token-search leaves unverified tokens out. Anything looser buys
 nothing — a ticker with a `CHAIN_ID` but no `ADDRESS`, a mint on an EVM chain, `ETH`
 on BSC. The owner gets one note when the program starts, and each fire logs the
 reason. A ticker alone on a chain would let the rail buy whichever deployment it ranks

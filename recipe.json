@@ -15,7 +15,7 @@
         "type": "string",
         "minLength": 1,
         "maxLength": 44,
-        "description": "the token as the owner named it — a ticker (VIRTUAL, ETH, TSLA) or the address they gave; the title shows it. A crypto ticker also needs ADDRESS and CHAIN_ID from token-search, and when several matches fit, the owner picks one from a card showing each match's name, chain and address. A tokenized stock is its ticker alone"
+        "description": "the token as the owner named it: a ticker (VIRTUAL, ETH, TSLA) or the address they gave. The title shows it. A crypto ticker also needs ADDRESS and CHAIN_ID, and ETH needs CHAIN_ID. If the owner named no chain and gave no address, ask them to pick on a card listing each token-search match by name, chain and address, plus a tile to paste their own — even with one match, because token-search leaves unverified tokens out. A tokenized stock is its ticker alone"
       },
       "ADDRESS": {
         "type": "string",
