@@ -1,10 +1,10 @@
 {
   "id": "dca",
-  "version": 4,
+  "version": 5,
   "description": "Buy a fixed dollar amount of one token on a schedule.",
   "keywords": ["dca", "average", "averaging", "schedule", "recurring", "buy", "daily", "weekly"],
   "triggers": ["timer"],
-  "supersedes": ["dca@1", "dca@2", "dca@3"],
+  "supersedes": ["dca@1", "dca@2", "dca@3", "dca@4"],
   "keys": ["buy:<duty>:slot:<slot>"],
   "params": {
     "type": "object",
@@ -30,18 +30,6 @@
         "minimum": 2,
         "maximum": 10000,
         "description": "dollars per buy"
-      },
-      "MAX_PER_DAY": {
-        "type": "integer",
-        "minimum": 1,
-        "default": 24,
-        "description": "at most this many buys a day, whatever the schedule says"
-      },
-      "MAX_USD_PER_DAY": {
-        "type": "number",
-        "minimum": 2,
-        "maximum": 1000000,
-        "description": "at most this many dollars of buys a UTC day; set only when the owner named one"
       }
     }
   }
