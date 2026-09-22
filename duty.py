@@ -1,19 +1,19 @@
-"""Buy a fixed dollar amount of one token on a schedule.
+"""Buy a fixed dollar amount of one token or tokenized stock on a schedule.
 
 Dollar-cost averaging: the same size every fire, whatever the price. Each buy
 is keyed on the schedule SLOT rather than on the instant it fired, so a
 catch-up after a restart and the scheduled fire it is catching up on are one
 buy — bevo-server's ledger answers the second one `replay`.
 
-It buys exactly the token the owner confirmed, on the chain they confirmed,
-and resolves nothing itself: TOKEN is a contract address and every buy
-carries CHAIN_ID. A ticker buys nothing — see `unconfirmed()`.
+It resolves nothing itself: every buy is one exact shape read from the
+settings — a contract on a chain, a chain's own coin, or a tokenized stock.
+Anything looser buys nothing — see `order()`.
 
 The program keeps no count of its own. What it may spend without asking is
 the pocket the owner funds in the app, and bevo-server holds that line.
 
-Settings: TOKEN (a contract address, or ETH / BNB / SOL for a chain's own
-coin), CHAIN_ID, SIZE_USD.
+Settings: TOKEN (as the owner named it — a ticker or an address), ADDRESS
+(a crypto ticker's contract), CHAIN_ID, SIZE_USD.
 """
 
 import bevo
@@ -25,6 +25,7 @@ import subprocess
 PARAMS = json.loads(os.environ.get("PARAMS", "{}"))
 
 TOKEN = PARAMS.get("TOKEN")
+ADDRESS = PARAMS.get("ADDRESS")
 CHAIN_ID = PARAMS.get("CHAIN_ID")
 SIZE_USD = PARAMS.get("SIZE_USD") or 0
 
@@ -70,36 +71,60 @@ def token_ref(value):
     return text.lstrip("$").upper()
 
 
-def unconfirmed(token, chain):
-    """Why TOKEN on CHAIN_ID is not one exact token, or None when it is.
+def order(token, address, chain, size):
+    """The `acp trade` arguments for one buy, as (args, None) — or (None, why not).
 
-    A ticker is not a token: the rail resolves one to whichever deployment it
-    ranks first, which can be a wrapper or a lookalike, and can change from
-    one fire to the next. An address names one deployment, and only on a
-    chain of its own kind — a mint lives on Solana, a 0x address never does.
+    Exactly one of three shapes, so the rail never picks the token:
+
+    - a contract (ADDRESS, or TOKEN when it is an address) on CHAIN_ID, of
+      its own kind: a mint lives on Solana and needs no CHAIN_ID, and a 0x
+      address never lives on Solana.
+    - a chain's own coin (ETH, BNB, SOL), on a chain whose coin it is.
+    - a tokenized stock: any other ticker, with no ADDRESS and no CHAIN_ID.
+      Bought in the stock shape, which the rail routes to whichever venue
+      returns the most shares.
+
+    A ticker with a chain and no address is refused. On that chain the rail
+    would buy whichever deployment it ranks first (a wrapper or a lookalike,
+    and not always the same one), and an explicit chain also switches off
+    the server's own alias and verified-ticker checks.
     """
-    text = str(token or "").strip()
-    if not text:
-        return "no TOKEN set"
-    if chain is None:
-        return "no CHAIN_ID set"
-    if EVM_ADDRESS.match(text):
-        if chain == SOLANA_CHAIN_ID:
-            return "TOKEN %s is an EVM address, but CHAIN_ID is Solana" % text
-        return None
-    if SOLANA_ADDRESS.match(text):
-        if chain != SOLANA_CHAIN_ID:
-            return "TOKEN %s is a Solana mint, but CHAIN_ID is %s" % (text, chain)
-        return None
-    ticker = text.lstrip("$").upper()
-    if ticker in NATIVE_CHAINS:
-        if chain in NATIVE_CHAINS[ticker]:
-            return None
-        return "%s is not chain %s's own coin, so it needs its address on that chain" % (
-            ticker,
-            chain,
-        )
-    return "TOKEN %s is a ticker, not a contract address" % text
+    name = str(token or "").strip()
+    pin = str(address or "").strip()
+    if not name:
+        return None, "no TOKEN set"
+    if EVM_ADDRESS.match(name) or SOLANA_ADDRESS.match(name):
+        if pin and token_ref(pin) != token_ref(name):
+            return None, "TOKEN %s and ADDRESS %s are different contracts" % (name, pin)
+        pin = name
+    if pin:
+        if SOLANA_ADDRESS.match(pin):
+            if chain not in (None, SOLANA_CHAIN_ID):
+                return None, "%s is a Solana mint, but CHAIN_ID is %s" % (pin, chain)
+            chain = SOLANA_CHAIN_ID
+        elif not EVM_ADDRESS.match(pin):
+            return None, "ADDRESS %s is not a contract address" % pin
+        elif chain is None:
+            return None, "%s has no CHAIN_ID, and a 0x address can live on any EVM chain" % pin
+        elif chain == SOLANA_CHAIN_ID:
+            return None, "%s is an EVM address, but CHAIN_ID is Solana" % pin
+        ref = token_ref(pin)
+    else:
+        ref = token_ref(name)
+        chains = NATIVE_CHAINS.get(ref)
+        if chains is None:
+            if chain is not None:
+                return None, "TOKEN %s is a ticker with a CHAIN_ID but no ADDRESS" % ref
+            return ["--token", ref, "--amount-usdc", fmt(size)], None
+        if chain is None and len(chains) == 1:
+            chain = chains[0]
+        if chain not in chains:
+            where = " / ".join(str(c) for c in chains)
+            if chain is None:
+                return None, "%s needs a CHAIN_ID — it is the own coin of chain %s" % (ref, where)
+            return None, "%s is the own coin of chain %s, not of chain %s" % (ref, where, chain)
+    args = ["--token-in", "usdc", "--amount-in", fmt(size)]
+    return args + ["--token-out", ref, "--chain-out", str(chain)], None
 
 
 def answer_of(text):
@@ -179,7 +204,7 @@ def slot_key(slot):
     return str(slot).replace("@", "-").replace("/", "-")
 
 
-PROBLEM = unconfirmed(TOKEN, CHAIN_ID)
+ARGS, PROBLEM = order(TOKEN, ADDRESS, CHAIN_ID, SIZE_USD)
 if PROBLEM:
     # Said once, when the program starts: every fire would say the same thing,
     # and nothing but a settings change from the owner can fix it.
@@ -202,12 +227,9 @@ for tick in bevo.ticks():
         continue
 
     key = "buy:%s:slot:%s" % (bevo.SERVICE_ID, slot_key(tick.slot))
-    ref = token_ref(TOKEN)
-    args = [
-        "--token-in", "usdc", "--amount-in", fmt(SIZE_USD),
-        "--token-out", ref, "--chain-out", str(CHAIN_ID),
-    ]
-    ok, summary = filed(args, key, "Buy %s" % ref)
+    # Named the way the title names it: TOKEN, the ticker or the address the
+    # owner gave, never the ADDRESS behind a ticker.
+    ok, summary = filed(ARGS, key, "Buy %s" % token_ref(TOKEN))
     if ok:
         bevo.notify(("%s: %s" % (NAME, summary))[:500], quiet=True)
     else:

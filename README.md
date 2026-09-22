@@ -1,25 +1,33 @@
-Buys a fixed dollar amount of one exact token, on one chain, on a schedule — and
-nothing else.
+Buys a fixed dollar amount of one token or tokenized stock on a schedule, and nothing
+else.
 
-Each fire buys `SIZE_USD` of `TOKEN` on `CHAIN_ID` at whatever the price is, then
-leaves a quiet note in the duty's thread. Dollar-cost averaging: the same size every
-time, so the size is the decision and the timing is not.
+Each fire buys `SIZE_USD` of it at whatever the price is, then leaves a quiet note in
+the duty's thread. Dollar-cost averaging: the same size every time, so the size is the
+decision and the timing is not.
 
-## The token is confirmed, not looked up
+## What it buys
 
-`TOKEN` and `CHAIN_ID` are one decision, made by the owner before the duty is filed:
-the token they picked from its matches, each shown with its name, chain and address.
-The program resolves nothing itself. It buys only
+It resolves nothing itself. Every buy is one exact shape, read from the settings:
 
-- a contract address whose kind matches `CHAIN_ID` — `0x…` on an EVM chain, a mint
-  (verbatim, case and all) on Solana — or
-- a chain's own coin by its ticker, on that chain: `ETH` on Ethereum, Base, Arbitrum
-  or Robinhood, `BNB` on BSC, `SOL` on Solana.
+| The owner named | `TOKEN` | `ADDRESS` | `CHAIN_ID` | Bought |
+| --- | --- | --- | --- | --- |
+| a crypto token by ticker | the ticker | its contract | its chain | that contract, on that chain |
+| a crypto token by address | the address | — | its chain (none for a mint) | that contract, on that chain |
+| a chain's own coin | `ETH`, `BNB` or `SOL` | — | a chain whose coin it is | that coin |
+| a tokenized stock | the ticker | — | — | the stock, on whichever venue returns the most shares |
 
-Anything else — a ticker such as `VIRTUAL` or `BTC`, a mint with an EVM chain — buys
-nothing: the owner gets one note when the program starts, and each fire logs the
-reason. A ticker resolves on the rail to whichever deployment ranks first, which can
-be a wrapper or a lookalike, and can change from one fire to the next.
+A mint lives only on Solana, so it needs no `CHAIN_ID`; nor do `BNB` (BSC) and `SOL`.
+`ETH` is the own coin of Ethereum, Base, Arbitrum and Robinhood, so it needs one.
+
+When the owner's words fit more than one token or chain, the settings hold the match
+they picked, shown to them with its name, chain and address. Anything looser buys
+nothing — a ticker with a `CHAIN_ID` but no `ADDRESS`, a mint on an EVM chain, `ETH`
+on BSC. The owner gets one note when the program starts, and each fire logs the
+reason. A ticker alone on a chain would let the rail buy whichever deployment it ranks
+first, which can be a wrapper or a lookalike, and can change between fires.
+
+The title and every note name it by `TOKEN`: the ticker, or the address when the owner
+gave one.
 
 ## What it will not do
 
@@ -30,8 +38,8 @@ be a wrapper or a lookalike, and can change from one fire to the next.
   instant it fired, so a catch-up after a restart and the fire it is catching up on
   are one buy. The ledger answers the second one `replay`.
 - **Sell, ever.** It only buys.
-- **Buy a tokenized stock on its venue.** An address pins the buy to an on-chain
-  token, so the stock venues are never used.
+- **Pick a stock's venue.** A stock buy goes to whichever venue returns the most
+  shares; the rail takes no venue on a buy.
 - **Spend before the owner funds it.** It spends through the pocket, which starts
   empty; until it is funded every buy becomes an approval card. Once funded, the pocket
   is the only limit on what it spends: the duty keeps no daily count of its own, and
@@ -41,13 +49,11 @@ be a wrapper or a lookalike, and can change from one fire to the next.
 
 | Name | Unit | Default | Means |
 | --- | --- | --- | --- |
-| `TOKEN` | contract address, or a native coin's ticker | required | the exact token the owner confirmed — see above |
-| `CHAIN_ID` | numeric chain id | required | the chain it is on: Base `8453`, Ethereum `1`, BSC `56`, Arbitrum `42161`, Robinhood `4663`, Solana `1151111081099710` |
+| `TOKEN` | ticker or address | required | the token as the owner named it |
+| `ADDRESS` | contract address | unset | a crypto ticker's exact contract, on `CHAIN_ID` |
+| `CHAIN_ID` | numeric chain id | unset | Base `8453`, Ethereum `1`, BSC `56`, Arbitrum `42161`, Robinhood `4663`, Solana `1151111081099710` |
 | `SIZE_USD` | US dollars per buy | required | minimum 2 — the swap route's own floor, below which the leg comes back as a wire error |
 | `SIZING` | — | `fixed` | fixed-size by definition; it takes no other value |
-
-`TOKEN`, `CHAIN_ID` and `SIZE_USD` are the three an owner decides. `{TOKEN}` in a
-title renders the full address.
 
 ## Trigger
 

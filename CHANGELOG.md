@@ -2,33 +2,32 @@
 
 ## 6.0.0
 
-**The token and the chain are confirmed with the owner, not resolved by the rail.**
-`CHAIN_ID` is now required, so `recipe_show` lists it under `decide` beside `TOKEN`
-and `SIZE_USD`. Both settings' descriptions say what the owner confirms: the match
-they picked from a card showing each one's name, chain and address. `TOKEN` is that
-match's contract address. Every buy now carries `--chain-out`.
+**Every buy is one exact shape, and a crypto ticker is pinned to the contract and chain
+the owner meant.** Before, a bare ticker went to the rail on every fire. The rail
+bought whichever deployment it ranked first, which could be a wrapper or a lookalike
+on another chain, and the pick could change from one fire to the next.
 
-Before this, a bare ticker went to the rail on every fire. The rail buys whichever
-deployment it ranks first, which can be a wrapper or a lookalike on another chain,
-and the pick can change from one fire to the next. With `--chain-out` set, a ticker
-also skips the server's alias and unverified-ticker checks. Those checks only look
-at a leg that has no address and no chain.
-
-- `duty.py` buys only a contract address whose kind matches `CHAIN_ID` (a `0x…`
-  address never on Solana, a mint only on Solana), or a chain's own coin by its
-  ticker on that chain: `ETH` on 1 / 8453 / 42161 / 4663, `BNB` on 56, `SOL` on
-  Solana. Anything else buys nothing. The owner gets one note when the program
-  starts, and each fire logs the reason.
-- `TOKEN` is 3–44 characters. `ETH` is the shortest value it takes, and a Solana
-  mint of 44 characters is the longest. Prose stuffed into the field is refused at
-  filing.
-- A tokenized stock is no longer bought on its venue. A stock ticker such as `TSLA`
-  used to be rerouted to the stock body. Now the ticker buys nothing, and an address
-  pins the buy to the on-chain token.
-- `recipe.json` goes to version 6 and supersedes `dca@5`. A duty already filed from
-  `dca@3`–`dca@5` keeps its stored code. A settings change to one of those duties is
-  now checked against `dca@6`'s schema, so it needs `CHAIN_ID`. Re-file the duty to
-  pick up this code.
+- New `ADDRESS` setting: the contract behind a crypto `TOKEN` named by ticker, on
+  `CHAIN_ID`. `TOKEN` stays what the owner named, a ticker or an address, so the
+  title and every note show the symbol, or the address when the owner gave one.
+- `duty.py` buys only these shapes:
+  - a contract (`ADDRESS`, or an address `TOKEN`) on a chain of its own kind. A mint
+    implies Solana, and a `0x…` address needs a `CHAIN_ID`.
+  - `ETH` / `BNB` / `SOL` on a chain whose coin it is. `BNB` and `SOL` imply their
+    chain, and `ETH` needs a `CHAIN_ID`.
+  - a tokenized stock: any other ticker with no `ADDRESS` and no `CHAIN_ID`. It is
+    bought in the stock shape (`--token <SYM> --amount-usdc`), which the rail routes to
+    the venue that returns the most shares.
+- A ticker with a `CHAIN_ID` but no `ADDRESS` buys nothing. On a named chain the
+  server's alias and unverified-ticker checks are switched off (they only look at a
+  leg with no address and no chain), so the chain alone would not pin the token.
+  Anything that fits no shape buys nothing too. The owner gets one note when the
+  program starts, and each fire logs the reason.
+- The setting descriptions tell Butler to resolve a crypto ticker with token-search.
+  When several matches fit, the owner picks one from a card that shows each match's
+  name, chain and address. One clear match needs no card.
+- `recipe.json` goes to version 6 and supersedes `dca@5`. `description` and
+  `keywords` now mention stocks.
 
 ## 5.0.0
 

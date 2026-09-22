@@ -1,25 +1,31 @@
 {
   "id": "dca",
   "version": 6,
-  "description": "Buy a fixed dollar amount of one token on a schedule.",
-  "keywords": ["dca", "average", "averaging", "schedule", "recurring", "buy", "daily", "weekly"],
+  "description": "Buy a fixed dollar amount of one token or tokenized stock on a schedule.",
+  "keywords": ["dca", "average", "averaging", "schedule", "recurring", "buy", "daily", "weekly", "stock"],
   "triggers": ["timer"],
   "supersedes": ["dca@1", "dca@2", "dca@3", "dca@4", "dca@5"],
   "keys": ["buy:<duty>:slot:<slot>"],
   "params": {
     "type": "object",
     "additionalProperties": false,
-    "required": ["TOKEN", "CHAIN_ID", "SIZE_USD"],
+    "required": ["TOKEN", "SIZE_USD"],
     "properties": {
       "TOKEN": {
         "type": "string",
-        "minLength": 3,
+        "minLength": 1,
         "maxLength": 44,
-        "description": "which token, exactly: the contract address the owner picked from a card listing each match's name, chain and address — a Solana mint verbatim, or ETH, BNB or SOL for a chain's own coin. A ticker buys nothing"
+        "description": "the token as the owner named it — a ticker (VIRTUAL, ETH, TSLA) or the address they gave; the title shows it. A crypto ticker also needs ADDRESS and CHAIN_ID from token-search, and when several matches fit, the owner picks one from a card showing each match's name, chain and address. A tokenized stock is its ticker alone"
+      },
+      "ADDRESS": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 44,
+        "description": "the contract address of a crypto TOKEN named by ticker, on CHAIN_ID (a Solana mint verbatim). Not set for an address TOKEN, for ETH, BNB or SOL, or for a tokenized stock"
       },
       "CHAIN_ID": {
         "type": "integer",
-        "description": "the chain the owner confirmed TOKEN on, picked on the same card, as a numeric id: Base 8453, Ethereum 1, BSC 56, Arbitrum 42161, Robinhood 4663, Solana 1151111081099710"
+        "description": "the chain of a crypto token or coin, as a numeric id: Base 8453, Ethereum 1, BSC 56, Arbitrum 42161, Robinhood 4663, Solana 1151111081099710. A tokenized stock takes none — the rail buys it on the venue that returns the most shares"
       },
       "SIZING": {
         "const": "fixed",
