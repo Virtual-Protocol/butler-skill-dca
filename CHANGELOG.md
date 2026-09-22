@@ -1,5 +1,20 @@
 # Changelog
 
+## 5.0.0
+
+**The daily caps are gone.** `MAX_PER_DAY` and `MAX_USD_PER_DAY` are removed, and
+with them the ledger the duty kept in its own log to count them: no `requested` /
+`released` lines, no re-reading `duty.log` / `duty.log.1`, and no buy skipped
+because the rotated log starts after midnight UTC. What a duty may spend without
+asking is the pocket the owner funds in the app, and bevo-server enforces it.
+
+- A catch-up of a slot is still one buy: the idempotency key is unchanged
+  (`buy:<duty>:slot:<slot>`), so bevo-server's ledger answers the second `replay`.
+- A `pocket_empty` / `wallet_short` refusal is reported like any other refusal.
+- `recipe.json` goes to version 5 and supersedes `dca@4`. A duty already filed from
+  `dca@3` or `dca@4` keeps its stored code, and with it both caps; re-file it to
+  pick this up.
+
 ## 4.0.0
 
 **A buy the server refuses before executing it no longer counts toward the daily
