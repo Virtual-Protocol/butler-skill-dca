@@ -1,5 +1,20 @@
 # Changelog
 
+## 7.0.0
+
+**A tokenized-stock DCA checks that ticker's own floor on every fire.** The floor is per
+listing: $5 on most tickers and $22 on the illiquid tail, the cost buffer included, and
+it moves as venues go thin. Before, the only check was the $2 spot minimum, so a stock
+DCA sized under its floor was sent on every fire and turned down by the planner each time.
+
+- Each fire of a tokenized-stock DCA reads `bevo.read("/stock-limits", {"ticker": …})["minUsd"]`
+  and skips with the reason in the log when `SIZE_USD` is under it. A read that fails falls
+  back to $5, the server's own default.
+- `SIZE_USD`'s description tells Butler to read the floor (`bevo-read stock-min <TICKER>`)
+  and say it to the owner before filing.
+- `recipe.json` goes to version 7 and supersedes `dca@6`. A duty already filed keeps its
+  stored code; re-file it to pick this up.
+
 ## 6.0.0
 
 **Every buy is one exact shape, and a crypto ticker is pinned to the contract and chain
