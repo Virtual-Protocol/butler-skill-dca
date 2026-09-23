@@ -35,6 +35,10 @@ NAME = os.environ.get("BEVO_SERVICE_NAME") or "dca"
 #: loop would read as an outage rather than as a decision.
 SPOT_MIN_USD = 2.0
 
+#: What `/stock-limits` answers when it cannot say, and what a failed read
+#: falls back to — bevo-server's own default for a tokenized stock.
+STOCK_MIN_DEFAULT_USD = 5.0
+
 EVM_ADDRESS = re.compile(r"^0x[0-9a-fA-F]{40}$")
 SOLANA_ADDRESS = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
 
@@ -204,7 +208,25 @@ def slot_key(slot):
     return str(slot).replace("@", "-").replace("/", "-")
 
 
+def stock_floor(ticker):
+    """The smallest buy the venues take for this tokenized stock right now.
+
+    Per listing, not a constant: $5 on most tickers and $22 on the illiquid
+    tail, the cost buffer included, and it moves as venues go thin — so it is
+    read on every fire. bevo-server computes it with the rule the planner gates
+    on. A read that fails falls back to the server's own default and lets the
+    rail decide.
+    """
+    try:
+        return float(bevo.read("/stock-limits", {"ticker": ticker})["minUsd"])
+    except (bevo.BevoError, KeyError, TypeError, ValueError):
+        return STOCK_MIN_DEFAULT_USD
+
+
 ARGS, PROBLEM = order(TOKEN, ADDRESS, CHAIN_ID, SIZE_USD)
+#: The ticker when ARGS is the tokenized-stock shape — the one `order()`
+#: answers with `--token` rather than `--token-in`.
+STOCK = ARGS[1] if ARGS and ARGS[0] == "--token" else None
 if PROBLEM:
     # Said once, when the program starts: every fire would say the same thing,
     # and nothing but a settings change from the owner can fix it.
@@ -225,6 +247,14 @@ for tick in bevo.ticks():
             % (tick.slot, fmt(SPOT_MIN_USD), fmt(SIZE_USD))
         )
         continue
+    if STOCK:
+        floor = stock_floor(STOCK)
+        if SIZE_USD < floor:
+            say(
+                "skipped %s: %s buys are $%s minimum and SIZE_USD is $%s"
+                % (tick.slot, STOCK, fmt(floor), fmt(SIZE_USD))
+            )
+            continue
 
     key = "buy:%s:slot:%s" % (bevo.SERVICE_ID, slot_key(tick.slot))
     # Named the way the title names it: TOKEN, the ticker or the address the

@@ -53,7 +53,7 @@ gave one.
 | `TOKEN` | ticker or address | required | the token as the owner named it |
 | `ADDRESS` | contract address | unset | a crypto ticker's exact contract, on `CHAIN_ID` |
 | `CHAIN_ID` | numeric chain id | unset | Base `8453`, Ethereum `1`, BSC `56`, Arbitrum `42161`, Robinhood `4663`, Solana `1151111081099710` |
-| `SIZE_USD` | US dollars per buy | required | minimum 2 — the swap route's own floor, below which the leg comes back as a wire error |
+| `SIZE_USD` | US dollars per buy | required | minimum 2 — the swap route's own floor, below which the leg comes back as a wire error; a tokenized stock's floor is per ticker (`/stock-limits`: $5 on most tickers, $22 on the illiquid tail), and a fire under it is skipped with the reason logged |
 | `SIZING` | — | `fixed` | fixed-size by definition; it takes no other value |
 
 ## Trigger
