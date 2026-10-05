@@ -1,0 +1,9 @@
+# Hub tooling downloaded for local validation (https://virtual-protocol.github.io/butler-skills/tools/)
+# — never part of the skill.
+validate.py
+replay.py
+stub_bevo.py
+check_selectors.mjs
+fixtures/
+node_modules/
+__pycache__/
