@@ -1,15 +1,40 @@
 {
   "id": "dca",
-  "version": 7,
+  "version": 8,
   "description": "Buy a fixed dollar amount of one token or tokenized stock on a schedule.",
-  "keywords": ["dca", "average", "averaging", "schedule", "recurring", "buy", "daily", "weekly", "stock"],
-  "triggers": ["timer"],
-  "supersedes": ["dca@1", "dca@2", "dca@3", "dca@4", "dca@5", "dca@6"],
-  "keys": ["buy:<duty>:slot:<slot>"],
+  "keywords": [
+    "dca",
+    "average",
+    "averaging",
+    "schedule",
+    "recurring",
+    "buy",
+    "daily",
+    "weekly",
+    "stock"
+  ],
+  "triggers": [
+    "timer"
+  ],
+  "supersedes": [
+    "dca@1",
+    "dca@2",
+    "dca@3",
+    "dca@4",
+    "dca@5",
+    "dca@6",
+    "dca@7"
+  ],
+  "keys": [
+    "buy:<duty>:slot:<slot>"
+  ],
   "params": {
     "type": "object",
     "additionalProperties": false,
-    "required": ["TOKEN", "SIZE_USD"],
+    "required": [
+      "TOKEN",
+      "SIZE_USD"
+    ],
     "properties": {
       "TOKEN": {
         "type": "string",
@@ -39,5 +64,25 @@
         "description": "dollars per buy. A tokenized stock also has its own buy floor, per ticker: read it with bevo-read stock-min <TICKER> and tell the owner its minUsd before filing when SIZE_USD is under it — a fire under the floor buys nothing"
       }
     }
+  },
+  "status": {
+    "starting": "First buy {next}",
+    "bought": {
+      "last": "Bought ${SIZE_USD}",
+      "next": "next buy {next}"
+    },
+    "approval": {
+      "last": "Buy awaits your approval",
+      "next": "next buy {next}"
+    },
+    "skipped": {
+      "last": "Last buy skipped",
+      "next": "next buy {next}"
+    },
+    "failed": {
+      "last": "Last buy failed",
+      "next": "next buy {next}"
+    },
+    "paused": "Paused: confirm the token and chain"
   }
 }
