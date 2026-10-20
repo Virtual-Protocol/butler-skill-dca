@@ -234,18 +234,27 @@ if PROBLEM:
         "%s buys nothing until its token and chain are confirmed: %s." % (NAME, PROBLEM)
     )
 
+if PROBLEM:
+    bevo.status("paused")
+
+# The owner's Duties row: recipe.json `status` words each state. A state is
+# reported on every fire, so the row always says what happened last and when
+# the next buy is.
 for tick in bevo.ticks():
     if PROBLEM:
         say("skipped %s: %s" % (tick.slot, PROBLEM))
+        bevo.status("paused")
         continue
     if tick.slot is None:
         say("skipped: the fire carried no time, so there is no slot to key on")
+        bevo.status("skipped")
         continue
     if SIZE_USD < SPOT_MIN_USD:
         say(
             "skipped %s: spot buys are $%s minimum and SIZE_USD is $%s"
             % (tick.slot, fmt(SPOT_MIN_USD), fmt(SIZE_USD))
         )
+        bevo.status("skipped")
         continue
     if STOCK:
         floor = stock_floor(STOCK)
@@ -254,6 +263,7 @@ for tick in bevo.ticks():
                 "skipped %s: %s buys are $%s minimum and SIZE_USD is $%s"
                 % (tick.slot, STOCK, fmt(floor), fmt(SIZE_USD))
             )
+            bevo.status("skipped")
             continue
 
     key = "buy:%s:slot:%s" % (bevo.SERVICE_ID, slot_key(tick.slot))
@@ -262,5 +272,10 @@ for tick in bevo.ticks():
     ok, summary = filed(ARGS, key, "Buy %s" % token_ref(TOKEN))
     if ok:
         bevo.notify(("%s: %s" % (NAME, summary))[:500], quiet=True)
+        if "approval" in summary:
+            bevo.status("approval")
+        else:
+            bevo.status("bought")
     else:
         say("skipped %s: %s" % (tick.slot, summary))
+        bevo.status("failed")

@@ -1,5 +1,16 @@
 # Changelog
 
+## 8.0.0
+
+**The duty reports a status line.** Its row in the owner's Duties list said only "Asks
+before buying" or "nothing yet", because the program never called `bevo.status()`.
+
+- Each fire reports a state — `bought`, `approval`, `skipped`, `failed`, or `paused` while
+  the token and chain are unconfirmed — and `recipe.json` `status` words it:
+  "Bought $5 · next buy 9am", "First buy 9am" before the first fire.
+- `recipe.json` goes to version 8 and supersedes `dca@7`. A duty already filed keeps its
+  stored code; re-file it to pick this up.
+
 ## 7.0.0
 
 **A tokenized-stock DCA checks that ticker's own floor on every fire.** The floor is per
