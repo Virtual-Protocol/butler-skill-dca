@@ -1,5 +1,17 @@
 # Changelog
 
+## 9.0.0
+
+**A buy refused while the pocket card waits no longer reads "Last buy failed".** A daily
+duty filed after its slot time fires that slot at once. When the owner had not yet answered
+its pocket card, bevo-server refused the buy with 402 `pocket_pending` (nothing filed), and
+the duty reported `failed`: the row said "Last buy failed" before any buy had run.
+
+- `filed()` reads `pocket_pending` as a wait, and the fire reports `starting`, so the row
+  still says "First buy 10am". Every other refusal still reports `failed`.
+- `recipe.json` goes to version 9 and supersedes `dca@8`. A duty already filed keeps its
+  stored code; re-file it to pick this up.
+
 ## 8.0.0
 
 **The duty reports a status line.** Its row in the owner's Duties list said only "Asks

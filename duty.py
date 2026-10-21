@@ -150,7 +150,8 @@ def answer_of(text):
 
 
 def filed(args, key, sentence):
-    """Run one `acp trade` and read what it answered. Returns (ok, summary).
+    """Run one `acp trade` and read what it answered. Returns (ok, summary);
+    ok is None for a buy that was not filed because the duty has to wait.
 
     `--idempotency-key` is the last pair of the argv and is written out
     literally, which is what makes a catch-up fire a replay the ledger
@@ -180,6 +181,10 @@ def filed(args, key, sentence):
         return True, "%s — waiting for your owner's approval" % sentence
     if answer.get("ok"):
         return True, "%s — accepted, executing now" % sentence
+    if answer.get("code") == "pocket_pending":
+        # bevo-server's 402: the owner has not answered this duty's pocket
+        # card yet, so nothing was filed. A wait, not a failure.
+        return None, "%s — waiting: %s" % (sentence, answer.get("error") or "pocket_pending")
     if answer.get("unrecognized"):
         return False, (
             "%s — the server answered %r, which this container does not recognise. "
@@ -270,7 +275,12 @@ for tick in bevo.ticks():
     # Named the way the title names it: TOKEN, the ticker or the address the
     # owner gave, never the ADDRESS behind a ticker.
     ok, summary = filed(ARGS, key, "Buy %s" % token_ref(TOKEN))
-    if ok:
+    if ok is None:
+        # The pocket card is still in front of the owner, so no buy has run
+        # yet: the row keeps saying when the first one is, never "failed".
+        say("waiting %s: %s" % (tick.slot, summary))
+        bevo.status("starting")
+    elif ok:
         bevo.notify(("%s: %s" % (NAME, summary))[:500], quiet=True)
         if "approval" in summary:
             bevo.status("approval")
