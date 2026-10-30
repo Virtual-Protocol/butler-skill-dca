@@ -1,7 +1,7 @@
 {
   "id": "dca",
-  "version": 9,
-  "description": "Buy a fixed dollar amount of one token or tokenized stock on a schedule.",
+  "version": 10,
+  "description": "Buy a fixed dollar amount of one token or tokenized stock on a schedule, optionally stopping after a set number of buys.",
   "keywords": [
     "dca",
     "average",
@@ -11,7 +11,10 @@
     "buy",
     "daily",
     "weekly",
-    "stock"
+    "stock",
+    "times",
+    "repeat",
+    "count"
   ],
   "triggers": [
     "timer"
@@ -24,7 +27,8 @@
     "dca@5",
     "dca@6",
     "dca@7",
-    "dca@8"
+    "dca@8",
+    "dca@9"
   ],
   "keys": [
     "buy:<duty>:slot:<slot>"
@@ -63,6 +67,18 @@
         "minimum": 2,
         "maximum": 10000,
         "description": "dollars per buy. A tokenized stock also has its own buy floor, per ticker: read it with bevo-read stock-min <TICKER> and tell the owner its minUsd before filing when SIZE_USD is under it — a fire under the floor buys nothing"
+      },
+      "BUYS": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 1000,
+        "description": "how many buys, then the duty finishes itself — for 'every 10 min for 2 hours' that is 12. Only buys that executed count; a declined or failed buy uses up its turn. Leave unset to buy until the owner pauses it. The timer must fire at least BUYS times, so set the interval and BUYS together"
+      },
+      "RUN": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 40,
+        "description": "set to a new value (e.g. the time of the ask) each time the owner asks to run it again with the same settings: the count starts fresh. Changing any other setting also starts a fresh count"
       }
     }
   },
@@ -72,10 +88,19 @@
       "last": "Bought ${SIZE_USD}",
       "next": "next buy {next}"
     },
+    "placed": {
+      "last": "Buy placed, executing",
+      "next": "next buy {next}"
+    },
+    "progress": {
+      "last": "Bought {n} of {total}",
+      "next": "next buy {next}"
+    },
     "approval": {
       "last": "Buy awaits your approval",
       "next": "next buy {next}"
     },
+    "approval_count": "Bought {n} of {total} · a buy awaits approval",
     "skipped": {
       "last": "Last buy skipped",
       "next": "next buy {next}"

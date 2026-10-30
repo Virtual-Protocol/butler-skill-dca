@@ -9,11 +9,19 @@ It resolves nothing itself: every buy is one exact shape read from the
 settings — a contract on a chain, a chain's own coin, or a tokenized stock.
 Anything looser buys nothing — see `order()`.
 
-The program keeps no count of its own. What it may spend without asking is
-the pocket the owner funds in the app, and bevo-server holds that line.
+Without BUYS it buys until the owner pauses it, and keeps no count. With
+BUYS it finishes itself after that many turns, and a turn is counted only once
+it resolved: a buy that EXECUTED, or one declined or failed, which uses up its
+turn and is never placed again. An approval card that is still up, or an
+order accepted but not yet executed, is placed, not bought — it can still
+fail. The count lives in `bevo.state` under the settings it was made for, so
+a re-run (a new RUN) or any changed setting starts from zero.
+
+What it may spend without asking is the pocket the owner funds in the app,
+and bevo-server holds that line.
 
 Settings: TOKEN (as the owner named it — a ticker or an address), ADDRESS
-(a crypto ticker's contract), CHAIN_ID, SIZE_USD.
+(a crypto ticker's contract), CHAIN_ID, SIZE_USD, BUYS, RUN.
 """
 
 import bevo
@@ -21,6 +29,7 @@ import json
 import os
 import re
 import subprocess
+import time
 
 PARAMS = json.loads(os.environ.get("PARAMS", "{}"))
 
@@ -28,6 +37,8 @@ TOKEN = PARAMS.get("TOKEN")
 ADDRESS = PARAMS.get("ADDRESS")
 CHAIN_ID = PARAMS.get("CHAIN_ID")
 SIZE_USD = PARAMS.get("SIZE_USD") or 0
+BUYS = PARAMS.get("BUYS") or 0
+RUN = PARAMS.get("RUN")
 
 NAME = os.environ.get("BEVO_SERVICE_NAME") or "dca"
 
@@ -38,6 +49,14 @@ SPOT_MIN_USD = 2.0
 #: What `/stock-limits` answers when it cannot say, and what a failed read
 #: falls back to — bevo-server's own default for a tokenized stock.
 STOCK_MIN_DEFAULT_USD = 5.0
+
+#: How long a fire waits for the buy it just placed to settle, so a buy that
+#: executes in seconds is counted on the fire that placed it.
+SETTLE_WAIT_S = 20
+LEDGER_POLL_S = 4
+
+#: What a declined or failed buy is, in the approval column of the ledger.
+DROPPED_APPROVALS = ("rejected", "superseded", "expired", "failed")
 
 EVM_ADDRESS = re.compile(r"^0x[0-9a-fA-F]{40}$")
 SOLANA_ADDRESS = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
@@ -150,16 +169,25 @@ def answer_of(text):
 
 
 def filed(args, key, sentence):
-    """Run one `acp trade` and read what it answered. Returns (ok, summary);
-    ok is None for a buy that was not filed because the duty has to wait.
+    """Run one `acp trade` and read what it answered. Returns (kind, summary),
+    kind one of:
+
+    - `executed`: the trade went through.
+    - `asked`: an approval card is in front of the owner; nothing bought yet.
+    - `placed`: accepted and in flight; nothing bought yet, and it can fail.
+    - `wait`: not filed, because the pocket card is unanswered or the pocket is
+      empty. A wait, not a failure.
+    - `refused`: turned down; nothing was bought.
+    - `unknown`: the answer was unreadable, so the buy may or may not have
+      landed.
 
     `--idempotency-key` is the last pair of the argv and is written out
     literally, which is what makes a catch-up fire a replay the ledger
     recognises rather than a second buy.
 
-    An unparseable answer is `unknown_outcome`, never "refused": the request
-    may have landed. `bevo.exec_status(key)` is the one way to find out, and
-    re-running with a NEW key is how one buy becomes two.
+    An unparseable answer is `unknown`, never "refused": the request may have
+    landed. `bevo.exec_status(key)` is the one way to find out, and re-running
+    with a NEW key is how one buy becomes two.
     """
     done = subprocess.run(
         ["acp", "trade", *args, "--idempotency-key", key],
@@ -171,26 +199,70 @@ def filed(args, key, sentence):
     answer = answer_of(done.stdout)
     if answer is None:
         state = (bevo.exec_status(key) or {}).get("state")
-        return False, (
+        return "unknown", (
             "%s — outcome UNKNOWN, the rail said nothing readable (exec_status: %s). "
             "Never re-run this with a new key." % (sentence, state)
         )
     if answer.get("executed"):
-        return True, "%s — executed" % sentence
+        return "executed", "%s — executed" % sentence
     if answer.get("asked"):
-        return True, "%s — waiting for your owner's approval" % sentence
-    if answer.get("ok"):
-        return True, "%s — accepted, executing now" % sentence
-    if answer.get("code") == "pocket_pending":
+        return "asked", "%s — waiting for your approval" % sentence
+    if answer.get("ok") or answer.get("status") == "accepted":
+        return "placed", "%s — placed, executing" % sentence
+    if answer.get("code") in ("pocket_pending", "pocket_empty"):
         # bevo-server's 402: the owner has not answered this duty's pocket
-        # card yet, so nothing was filed. A wait, not a failure.
-        return None, "%s — waiting: %s" % (sentence, answer.get("error") or "pocket_pending")
+        # card yet, or has not funded it, so nothing was filed.
+        return "wait", "%s — waiting: %s" % (sentence, answer.get("error") or answer.get("code"))
     if answer.get("unrecognized"):
-        return False, (
-            "%s — the server answered %r, which this container does not recognise. "
-            "Do NOT report it as done." % (sentence, answer.get("status"))
+        # Not a refusal: the server answered something, and it may have filed.
+        # The summary reaches the owner's notes, so it says what they can do.
+        return "unknown", (
+            "%s — unconfirmed: the server answered %r; check Activity before counting it"
+            % (sentence, answer.get("status"))
         )
-    return False, "%s — refused: %s" % (sentence, answer.get("error") or answer.get("status"))
+    why = answer.get("error") or answer.get("status")
+    return "refused", "%s — refused: %s" % (sentence, why) if why else "%s — refused" % sentence
+
+
+def ledger_verdict(row):
+    """What the ledger row says became of a buy, in `bevo.settled()`'s words.
+
+    `manual` never changes once the owner answers the card; only the approval
+    column does, and `confirmed` there is the trade having executed.
+    """
+    state = row.get("state")
+    approval = row.get("approvalStatus")
+    if state == "executed" or (state == "manual" and approval == "confirmed"):
+        return "executed"
+    if state == "refused" or (state == "manual" and approval in DROPPED_APPROVALS):
+        return "dropped"
+    if state == "manual" and approval == "pending":
+        return "approval"
+    if state in ("unknown", "not_found"):
+        return "unknown"
+    return "waiting"
+
+
+def settled(key, wait=0):
+    """executed | approval | waiting | dropped | unknown, for one placed buy.
+
+    The hub index is shared with containers that predate `bevo.settled()`, so
+    on those the same verdict is read off `bevo.exec_status()`.
+    """
+    if hasattr(bevo, "settled"):
+        return bevo.settled(key, route="trade", wait=wait)
+    verdict = "waiting"
+    for attempt in range(1 + int(wait) // LEDGER_POLL_S):
+        if attempt:
+            time.sleep(LEDGER_POLL_S)
+        try:
+            verdict = ledger_verdict(bevo.exec_status(key) or {})
+        except bevo.BevoError:
+            # An unread ledger says nothing about the buy: ask again later.
+            verdict = "waiting"
+        if verdict != "waiting":
+            break
+    return verdict
 
 
 def say(text):
@@ -228,10 +300,181 @@ def stock_floor(ticker):
         return STOCK_MIN_DEFAULT_USD
 
 
+def tally_key():
+    """Where the count lives: under the settings it counts for, so a re-run
+    with a new RUN, or any changed setting, starts from zero."""
+    return "count:" + json.dumps(
+        [token_ref(TOKEN), ADDRESS, CHAIN_ID, SIZE_USD, BUYS, RUN], separators=(",", ":")
+    )
+
+
+def load_tally():
+    name = tally_key()
+    for other in [k for k in bevo.state.keys() if k.startswith("count:") and k != name]:
+        del bevo.state[other]
+    tally = dict(bevo.state.get(name) or {})
+    for field in ("bought", "skipped", "unsure"):
+        tally.setdefault(field, 0)
+    # `placed` is still being settled; `filed` is every key handed to the rail
+    # this run, so a catch-up fire on a slot already filed is never counted twice.
+    tally.setdefault("placed", [])
+    tally.setdefault("filed", [])
+    return tally
+
+
+def save_tally(tally):
+    bevo.state[tally_key()] = tally
+
+
+def resolved(tally):
+    return tally["bought"] + tally["skipped"] + tally["unsure"]
+
+
+def can_buy(tick):
+    """Whether this fire may file a buy — every reason it may not is logged."""
+    if tick.slot is None:
+        say("skipped: the fire carried no time, so there is no slot to key on")
+        return False
+    if SIZE_USD < SPOT_MIN_USD:
+        say(
+            "skipped %s: spot buys are $%s minimum and SIZE_USD is $%s"
+            % (tick.slot, fmt(SPOT_MIN_USD), fmt(SIZE_USD))
+        )
+        return False
+    if STOCK:
+        floor = stock_floor(STOCK)
+        if SIZE_USD < floor:
+            say(
+                "skipped %s: %s buys are $%s minimum and SIZE_USD is $%s"
+                % (tick.slot, STOCK, fmt(floor), fmt(SIZE_USD))
+            )
+            return False
+    return True
+
+
+def note_bought(tally):
+    bevo.notify(
+        "%s: Bought %d of %d: $%s %s" % (NAME, tally["bought"], BUYS, fmt(SIZE_USD), LABEL),
+        quiet=True,
+    )
+
+
+def slot_buy_key(tick):
+    return "buy:%s:slot:%s" % (bevo.SERVICE_ID, slot_key(tick.slot))
+
+
+def buy_once(tick):
+    """dca@9's fire, worded honestly: one buy for the slot, no count."""
+    if not can_buy(tick):
+        bevo.status("skipped")
+        return
+    kind, summary = filed(ARGS, slot_buy_key(tick), "Buy %s" % LABEL)
+    if kind == "wait":
+        # The pocket is unanswered or empty, so no buy has run yet: the row
+        # keeps saying when the first one is, never "failed".
+        say("waiting %s: %s" % (tick.slot, summary))
+        bevo.status("starting")
+    elif kind in ("executed", "asked", "placed"):
+        bevo.notify(("%s: %s" % (NAME, summary))[:500], quiet=True)
+        if kind == "executed":
+            bevo.status("bought")
+        elif kind == "asked":
+            bevo.status("approval")
+        else:
+            bevo.status("placed")
+    else:
+        say("skipped %s: %s" % (tick.slot, summary))
+        bevo.status("failed")
+
+
+def count_once(tick, tally):
+    """One fire of a BUYS run: file a buy if a turn is free, then settle every
+    buy still placed, and finish once every turn has resolved."""
+    skipped_fire = False
+    fresh = None
+    if resolved(tally) + len(tally["placed"]) < BUYS:
+        if not can_buy(tick):
+            skipped_fire = True
+        elif slot_buy_key(tick) in tally["filed"]:
+            say("skipped %s: this slot's buy is already filed" % tick.slot)
+        else:
+            key = slot_buy_key(tick)
+            kind, summary = filed(ARGS, key, "Buy %s" % LABEL)
+            say("%s: %s" % (tick.slot, summary))
+            if kind != "wait":
+                tally["filed"].append(key)
+            if kind == "executed":
+                tally["bought"] += 1
+                note_bought(tally)
+            elif kind in ("asked", "placed"):
+                tally["placed"].append(key)
+                fresh = key
+            elif kind == "refused":
+                tally["skipped"] += 1
+                bevo.notify(
+                    ("%s: %s — nothing was bought; that turn is used up" % (NAME, summary))[:500],
+                    quiet=True,
+                )
+            elif kind == "unknown":
+                tally["unsure"] += 1
+                bevo.notify(
+                    ("%s: %s — counted as unconfirmed; check Activity" % (NAME, summary))[:500],
+                    quiet=True,
+                )
+            save_tally(tally)
+
+    awaiting = False
+    for key in list(tally["placed"]):
+        verdict = settled(key, wait=SETTLE_WAIT_S if key == fresh else 0)
+        if verdict == "executed":
+            tally["placed"].remove(key)
+            tally["bought"] += 1
+            save_tally(tally)
+            note_bought(tally)
+        elif verdict == "dropped":
+            tally["placed"].remove(key)
+            tally["skipped"] += 1
+            save_tally(tally)
+            bevo.notify(
+                "%s: a buy was declined or failed — nothing was bought; that turn is used up"
+                % NAME,
+                quiet=True,
+            )
+        elif verdict == "unknown":
+            tally["placed"].remove(key)
+            tally["unsure"] += 1
+            save_tally(tally)
+        elif verdict == "approval":
+            awaiting = True
+
+    if resolved(tally) >= BUYS:
+        summary = "%d of %d buys of $%s %s went through" % (
+            tally["bought"], BUYS, fmt(SIZE_USD), LABEL
+        )
+        if tally["skipped"]:
+            summary += ", %d declined or failed" % tally["skipped"]
+        if tally["unsure"]:
+            summary += ", %d unconfirmed — check Activity" % tally["unsure"]
+        bevo.done(summary)
+
+    if awaiting:
+        bevo.status("approval_count", n=tally["bought"], total=BUYS)
+    elif skipped_fire:
+        bevo.status("skipped")
+    elif not tally["filed"]:
+        # Nothing filed yet — a pocket still unanswered or empty included.
+        bevo.status("starting")
+    else:
+        bevo.status("progress", n=tally["bought"], total=BUYS)
+
+
 ARGS, PROBLEM = order(TOKEN, ADDRESS, CHAIN_ID, SIZE_USD)
 #: The ticker when ARGS is the tokenized-stock shape — the one `order()`
 #: answers with `--token` rather than `--token-in`.
 STOCK = ARGS[1] if ARGS and ARGS[0] == "--token" else None
+#: Named the way the title names it: TOKEN, the ticker or the address the
+#: owner gave, never the ADDRESS behind a ticker.
+LABEL = token_ref(TOKEN)
 if PROBLEM:
     # Said once, when the program starts: every fire would say the same thing,
     # and nothing but a settings change from the owner can fix it.
@@ -250,42 +493,7 @@ for tick in bevo.ticks():
         say("skipped %s: %s" % (tick.slot, PROBLEM))
         bevo.status("paused")
         continue
-    if tick.slot is None:
-        say("skipped: the fire carried no time, so there is no slot to key on")
-        bevo.status("skipped")
-        continue
-    if SIZE_USD < SPOT_MIN_USD:
-        say(
-            "skipped %s: spot buys are $%s minimum and SIZE_USD is $%s"
-            % (tick.slot, fmt(SPOT_MIN_USD), fmt(SIZE_USD))
-        )
-        bevo.status("skipped")
-        continue
-    if STOCK:
-        floor = stock_floor(STOCK)
-        if SIZE_USD < floor:
-            say(
-                "skipped %s: %s buys are $%s minimum and SIZE_USD is $%s"
-                % (tick.slot, STOCK, fmt(floor), fmt(SIZE_USD))
-            )
-            bevo.status("skipped")
-            continue
-
-    key = "buy:%s:slot:%s" % (bevo.SERVICE_ID, slot_key(tick.slot))
-    # Named the way the title names it: TOKEN, the ticker or the address the
-    # owner gave, never the ADDRESS behind a ticker.
-    ok, summary = filed(ARGS, key, "Buy %s" % token_ref(TOKEN))
-    if ok is None:
-        # The pocket card is still in front of the owner, so no buy has run
-        # yet: the row keeps saying when the first one is, never "failed".
-        say("waiting %s: %s" % (tick.slot, summary))
-        bevo.status("starting")
-    elif ok:
-        bevo.notify(("%s: %s" % (NAME, summary))[:500], quiet=True)
-        if "approval" in summary:
-            bevo.status("approval")
-        else:
-            bevo.status("bought")
+    if BUYS:
+        count_once(tick, load_tally())
     else:
-        say("skipped %s: %s" % (tick.slot, summary))
-        bevo.status("failed")
+        buy_once(tick)
