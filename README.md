@@ -5,6 +5,10 @@ Each fire buys `SIZE_USD` of it at whatever the price is, then leaves a quiet no
 the duty's thread. Dollar-cost averaging: the same size every time, so the size is the
 decision and the timing is not.
 
+With `BUYS` it finishes after that many turns; only an **executed** buy counts. A
+pending approval card or an accepted order is placed, not bought. A declined or failed
+buy uses up its turn, so a run can end with fewer buys. Without `BUYS` it never ends.
+
 ## What it buys
 
 It resolves nothing itself. Every buy is one exact shape, read from the settings:
@@ -40,7 +44,7 @@ gave one.
   are one buy. The ledger answers the second one `replay`.
 - **Sell, ever.** It only buys.
 - **Pick a stock's venue.** A stock buy goes to whichever venue returns the most
-  shares; the rail takes no venue on a buy.
+  shares.
 - **Spend before the owner funds it.** It spends through the pocket, which starts
   empty; until it is funded every buy becomes an approval card. Once funded, the pocket
   is the only limit on what it spends: the duty keeps no daily count of its own, and
@@ -53,7 +57,9 @@ gave one.
 | `TOKEN` | ticker or address | required | the token as the owner named it |
 | `ADDRESS` | contract address | unset | a crypto ticker's exact contract, on `CHAIN_ID` |
 | `CHAIN_ID` | numeric chain id | unset | Base `8453`, Ethereum `1`, BSC `56`, Arbitrum `42161`, Robinhood `4663`, Solana `1151111081099710` |
-| `SIZE_USD` | US dollars per buy | required | minimum 2 — the swap route's own floor, below which the leg comes back as a wire error; a tokenized stock's floor is per ticker (`/stock-limits`: $5 on most tickers, $22 on the illiquid tail), and a fire under it is skipped with the reason logged |
+| `SIZE_USD` | US dollars per buy | required | minimum 2, the swap route's own floor; a tokenized stock's floor is per ticker (`/stock-limits`: $5 on most tickers, $22 on the illiquid tail), and a fire under it is skipped with the reason logged |
+| `BUYS` | count | unset | buys, then it finishes; "every 10 min for 2 hours" is 12 |
+| `RUN` | text | unset | a new value restarts the count; so does any changed setting |
 | `SIZING` | — | `fixed` | fixed-size by definition; it takes no other value |
 
 ## Trigger

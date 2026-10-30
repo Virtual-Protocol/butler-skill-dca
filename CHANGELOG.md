@@ -1,5 +1,29 @@
 # Changelog
 
+## 10.0.0
+
+**A set number of buys is native, and only an executed buy counts.** Owners ask for "$5
+every 1 min for 5 mins". dca@9 has no count and never finishes, so Butler forked it and
+added a counter, and the forks counted every fire — approval cards still up and orders
+accepted but not yet executed included. They finished "5/5" with no trade made, and the
+notes said "accepted, executing now".
+
+- New `BUYS` setting: how many buys, then the duty finishes itself with `bevo.done()`
+  saying how many went through, how many were declined or failed, and how many are
+  unconfirmed. A buy counts once it executed. A declined or failed buy uses up its turn
+  and is never placed again. Each placed buy is settled through `bevo.settled()`, or the
+  ledger row (`bevo.exec_status()`) on a container without it.
+- New `RUN` setting: a new value restarts the count with the same settings. The count is
+  kept in `bevo.state` under the settings, so changing any of them restarts it too.
+- Notes never say "bought" before the trade executed: an accepted order reads "placed,
+  executing", an approval card "waiting for your approval". Without `BUYS` a fire still
+  buys once per slot, and the row says "Buy placed, executing" until the next one.
+- An empty pocket (`pocket_empty`) is a wait, like `pocket_pending`.
+- The status line counts: "Bought 3 of 12 · next buy in 10 min", and "Bought 3 of 12 · a
+  buy awaits approval" while a card is up.
+- `recipe.json` goes to version 10 and supersedes `dca@9`. A duty already filed keeps its
+  stored code; re-file it to pick this up.
+
 ## 9.0.0
 
 **A buy refused while the pocket card waits no longer reads "Last buy failed".** A daily
