@@ -1,5 +1,22 @@
 # Changelog
 
+## 11.0.0
+
+**Notes are worded in `recipe.json`, so they reach the owner in their language.** A Chinese
+owner's thread read "Buy VIRTUAL — placed, executing" (staging, 2026-10-30): every note was a
+sentence in `duty.py`, filed once in English.
+
+- `duty.py` names each note and passes its values (`bevo.notify("placed", token=LABEL)`);
+  `recipe.json` `notes` words it. The container puts that wording in the owner's app
+  language once, the way it does the status line.
+- Buy steps (executed, waiting for approval, placed, the "Bought 3 of 12" count) are marked
+  `"kind": "progress"`, so Activity still shows them as steps.
+- The duty's name no longer leads each note: they land in its own thread.
+- The finishing note drops its "declined or failed" and "unconfirmed" parts when there are none.
+- Needs a container whose `bevo.notify()` takes values and whose note template takes `kind`
+  (virtuals-agent #342, #350). `recipe.json` goes to version 11 and supersedes `dca@10`.
+  A duty already filed keeps its stored code; re-file it to pick this up.
+
 ## 10.0.0
 
 **A set number of buys is native, and only an executed buy counts.** Owners ask for "$5

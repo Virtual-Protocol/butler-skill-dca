@@ -40,8 +40,6 @@ SIZE_USD = PARAMS.get("SIZE_USD") or 0
 BUYS = PARAMS.get("BUYS") or 0
 RUN = PARAMS.get("RUN")
 
-NAME = os.environ.get("BEVO_SERVICE_NAME") or "dca"
-
 #: The swap route's own minimum. A smaller leg comes back as a wire error the
 #: loop would read as an outage rather than as a decision.
 SPOT_MIN_USD = 2.0
@@ -169,8 +167,9 @@ def answer_of(text):
 
 
 def filed(args, key, sentence):
-    """Run one `acp trade` and read what it answered. Returns (kind, summary),
-    kind one of:
+    """Run one `acp trade` and read what it answered. Returns (kind, summary,
+    why): `summary` for the log, and `why` the server's own words for a refusal
+    or a wait (None otherwise). kind is one of:
 
     - `executed`: the trade went through.
     - `asked`: an approval card is in front of the owner; nothing bought yet.
@@ -202,26 +201,26 @@ def filed(args, key, sentence):
         return "unknown", (
             "%s — outcome UNKNOWN, the rail said nothing readable (exec_status: %s). "
             "Never re-run this with a new key." % (sentence, state)
-        )
+        ), None
     if answer.get("executed"):
-        return "executed", "%s — executed" % sentence
+        return "executed", "%s — executed" % sentence, None
     if answer.get("asked"):
-        return "asked", "%s — waiting for your approval" % sentence
+        return "asked", "%s — waiting for your approval" % sentence, None
     if answer.get("ok") or answer.get("status") == "accepted":
-        return "placed", "%s — placed, executing" % sentence
+        return "placed", "%s — placed, executing" % sentence, None
     if answer.get("code") in ("pocket_pending", "pocket_empty"):
         # bevo-server's 402: the owner has not answered this duty's pocket
         # card yet, or has not funded it, so nothing was filed.
-        return "wait", "%s — waiting: %s" % (sentence, answer.get("error") or answer.get("code"))
+        why = answer.get("error") or answer.get("code")
+        return "wait", "%s — waiting: %s" % (sentence, why), why
     if answer.get("unrecognized"):
         # Not a refusal: the server answered something, and it may have filed.
-        # The summary reaches the owner's notes, so it says what they can do.
         return "unknown", (
             "%s — unconfirmed: the server answered %r; check Activity before counting it"
             % (sentence, answer.get("status"))
-        )
+        ), None
     why = answer.get("error") or answer.get("status")
-    return "refused", "%s — refused: %s" % (sentence, why) if why else "%s — refused" % sentence
+    return "refused", ("%s — refused: %s" % (sentence, why) if why else "%s — refused" % sentence), why
 
 
 def ledger_verdict(row):
@@ -353,10 +352,7 @@ def can_buy(tick):
 
 
 def note_bought(tally):
-    bevo.notify(
-        "%s: Bought %d of %d: $%s %s" % (NAME, tally["bought"], BUYS, fmt(SIZE_USD), LABEL),
-        quiet=True,
-    )
+    bevo.notify("bought", n=tally["bought"], total=BUYS, token=LABEL, quiet=True)
 
 
 def slot_buy_key(tick):
@@ -368,20 +364,21 @@ def buy_once(tick):
     if not can_buy(tick):
         bevo.status("skipped")
         return
-    kind, summary = filed(ARGS, slot_buy_key(tick), "Buy %s" % LABEL)
+    kind, summary, _ = filed(ARGS, slot_buy_key(tick), "Buy %s" % LABEL)
     if kind == "wait":
         # The pocket is unanswered or empty, so no buy has run yet: the row
         # keeps saying when the first one is, never "failed".
         say("waiting %s: %s" % (tick.slot, summary))
         bevo.status("starting")
-    elif kind in ("executed", "asked", "placed"):
-        bevo.notify(("%s: %s" % (NAME, summary))[:500], quiet=True)
-        if kind == "executed":
-            bevo.status("bought")
-        elif kind == "asked":
-            bevo.status("approval")
-        else:
-            bevo.status("placed")
+    elif kind == "executed":
+        bevo.notify("executed", token=LABEL, quiet=True)
+        bevo.status("bought")
+    elif kind == "asked":
+        bevo.notify("asked", token=LABEL, quiet=True)
+        bevo.status("approval")
+    elif kind == "placed":
+        bevo.notify("placed", token=LABEL, quiet=True)
+        bevo.status("placed")
     else:
         say("skipped %s: %s" % (tick.slot, summary))
         bevo.status("failed")
@@ -399,7 +396,7 @@ def count_once(tick, tally):
             say("skipped %s: this slot's buy is already filed" % tick.slot)
         else:
             key = slot_buy_key(tick)
-            kind, summary = filed(ARGS, key, "Buy %s" % LABEL)
+            kind, summary, why = filed(ARGS, key, "Buy %s" % LABEL)
             say("%s: %s" % (tick.slot, summary))
             if kind != "wait":
                 tally["filed"].append(key)
@@ -411,16 +408,10 @@ def count_once(tick, tally):
                 fresh = key
             elif kind == "refused":
                 tally["skipped"] += 1
-                bevo.notify(
-                    ("%s: %s — nothing was bought; that turn is used up" % (NAME, summary))[:500],
-                    quiet=True,
-                )
+                bevo.notify("refused", token=LABEL, why=why, quiet=True)
             elif kind == "unknown":
                 tally["unsure"] += 1
-                bevo.notify(
-                    ("%s: %s — counted as unconfirmed; check Activity" % (NAME, summary))[:500],
-                    quiet=True,
-                )
+                bevo.notify("unconfirmed", token=LABEL, quiet=True)
             save_tally(tally)
 
     awaiting = False
@@ -435,11 +426,7 @@ def count_once(tick, tally):
             tally["placed"].remove(key)
             tally["skipped"] += 1
             save_tally(tally)
-            bevo.notify(
-                "%s: a buy was declined or failed — nothing was bought; that turn is used up"
-                % NAME,
-                quiet=True,
-            )
+            bevo.notify("dropped", token=LABEL, quiet=True)
         elif verdict == "unknown":
             tally["placed"].remove(key)
             tally["unsure"] += 1
@@ -448,14 +435,14 @@ def count_once(tick, tally):
             awaiting = True
 
     if resolved(tally) >= BUYS:
-        summary = "%d of %d buys of $%s %s went through" % (
-            tally["bought"], BUYS, fmt(SIZE_USD), LABEL
+        bevo.done(
+            "finished",
+            bought=tally["bought"],
+            total=BUYS,
+            token=LABEL,
+            skipped=tally["skipped"] or None,
+            unsure=tally["unsure"] or None,
         )
-        if tally["skipped"]:
-            summary += ", %d declined or failed" % tally["skipped"]
-        if tally["unsure"]:
-            summary += ", %d unconfirmed — check Activity" % tally["unsure"]
-        bevo.done(summary)
 
     if awaiting:
         bevo.status("approval_count", n=tally["bought"], total=BUYS)
@@ -478,9 +465,7 @@ LABEL = token_ref(TOKEN)
 if PROBLEM:
     # Said once, when the program starts: every fire would say the same thing,
     # and nothing but a settings change from the owner can fix it.
-    bevo.notify(
-        "%s buys nothing until its token and chain are confirmed: %s." % (NAME, PROBLEM)
-    )
+    bevo.notify("paused", problem=PROBLEM)
 
 if PROBLEM:
     bevo.status("paused")
