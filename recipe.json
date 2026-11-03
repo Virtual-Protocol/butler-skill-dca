@@ -1,6 +1,6 @@
 {
   "id": "dca",
-  "version": 10,
+  "version": 11,
   "description": "Buy a fixed dollar amount of one token or tokenized stock on a schedule, optionally stopping after a set number of buys.",
   "keywords": [
     "dca",
@@ -28,7 +28,8 @@
     "dca@6",
     "dca@7",
     "dca@8",
-    "dca@9"
+    "dca@9",
+    "dca@10"
   ],
   "keys": [
     "buy:<duty>:slot:<slot>"
@@ -110,5 +111,28 @@
       "next": "next buy {next}"
     },
     "paused": "Paused: confirm the token and chain"
+  },
+  "notes": {
+    "executed": {
+      "text": "Buy {token} — executed",
+      "kind": "progress"
+    },
+    "asked": {
+      "text": "Buy {token} — waiting for your approval",
+      "kind": "progress"
+    },
+    "placed": {
+      "text": "Buy {token} — placed, executing",
+      "kind": "progress"
+    },
+    "bought": {
+      "text": "Bought {n} of {total}: ${SIZE_USD} {token}",
+      "kind": "progress"
+    },
+    "refused": "Buy {token} refused · {why} · nothing was bought; that turn is used up",
+    "unconfirmed": "Buy {token} — no clear answer; counted as unconfirmed, check Activity",
+    "dropped": "A buy of {token} was declined or failed — nothing was bought; that turn is used up",
+    "paused": "Buys nothing until its token and chain are confirmed: {problem}",
+    "finished": "{bought} of {total} buys of ${SIZE_USD} {token} went through · {skipped} declined or failed · {unsure} unconfirmed, check Activity"
   }
 }
