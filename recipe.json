@@ -1,6 +1,6 @@
 {
   "id": "dca",
-  "version": 11,
+  "version": 12,
   "description": "Buy a fixed dollar amount of one token or tokenized stock on a schedule, optionally stopping after a set number of buys.",
   "keywords": [
     "dca",
@@ -29,7 +29,8 @@
     "dca@7",
     "dca@8",
     "dca@9",
-    "dca@10"
+    "dca@10",
+    "dca@11"
   ],
   "keys": [
     "buy:<duty>:slot:<slot>"
@@ -66,7 +67,6 @@
       "SIZE_USD": {
         "type": "number",
         "minimum": 2,
-        "maximum": 10000,
         "description": "dollars per buy. A tokenized stock also has its own buy floor, per ticker: read it with bevo-read stock-min <TICKER> and tell the owner its minUsd before filing when SIZE_USD is under it — a fire under the floor buys nothing"
       },
       "BUYS": {

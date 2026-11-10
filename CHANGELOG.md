@@ -1,5 +1,11 @@
 # Changelog
 
+## 12.0.0
+
+**No $10,000 ceiling on a buy or its total.** `recipe.json` no longer caps the amount setting at 10000; the floors stay and the owner's funding card is the gate.
+
+- `recipe.json` goes to version 12 and supersedes `dca@11`. A duty already filed keeps its stored code; re-file it to pick this up.
+
 ## 11.0.0
 
 **Notes are worded in `recipe.json`, so they reach the owner in their language.** A Chinese
