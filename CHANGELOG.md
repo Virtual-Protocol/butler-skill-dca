@@ -1,5 +1,20 @@
 # Changelog
 
+## 13.0.0
+
+**A buy its own wallet can't pay for waits; it no longer uses up its turn.** A duty with two $2
+buys and a $2 wallet bought once, then got bevo-server's 402 `wallet_short` and counted it as a
+refused buy (staging, 2026-11-18). That made 2 of 2 turns resolved, so it finished "1 of 2"
+two seconds later, before the container could pause it. A finished duty is not restarted by a
+top-up, so the owner's top-up bought nothing.
+
+- `wallet_short` is a wait, like `pocket_pending` and `pocket_empty`: no turn is used and the
+  next fire tries again. The container pauses the duty `wallet_short` and restarts it once the
+  wallet covers the buy (virtuals-agent `funding.ts`), so the remaining buys run after a top-up.
+- Every other refusal still uses up its turn.
+- `recipe.json` goes to version 13 and supersedes `dca@12`. A duty already filed keeps its
+  stored code; re-file it to pick this up.
+
 ## 12.0.0
 
 **No $10,000 ceiling on a buy or its total.** `recipe.json` no longer caps the amount setting at 10000; the floors stay and the owner's funding card is the gate.

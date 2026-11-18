@@ -174,8 +174,8 @@ def filed(args, key, sentence):
     - `executed`: the trade went through.
     - `asked`: an approval card is in front of the owner; nothing bought yet.
     - `placed`: accepted and in flight; nothing bought yet, and it can fail.
-    - `wait`: not filed, because the pocket card is unanswered or the pocket is
-      empty. A wait, not a failure.
+    - `wait`: not filed, because the pocket card is unanswered, the pocket is
+      empty, or the duty's own wallet is short. A wait, not a failure.
     - `refused`: turned down; nothing was bought.
     - `unknown`: the answer was unreadable, so the buy may or may not have
       landed.
@@ -208,9 +208,11 @@ def filed(args, key, sentence):
         return "asked", "%s — waiting for your approval" % sentence, None
     if answer.get("ok") or answer.get("status") == "accepted":
         return "placed", "%s — placed, executing" % sentence, None
-    if answer.get("code") in ("pocket_pending", "pocket_empty"):
+    if answer.get("code") in ("pocket_pending", "pocket_empty", "wallet_short"):
         # bevo-server's 402: the owner has not answered this duty's pocket
-        # card yet, or has not funded it, so nothing was filed.
+        # card yet, has not funded it, or its own wallet can't pay, so nothing
+        # was filed. A wallet_short turn is kept: the container pauses the duty
+        # and restarts it on a top-up, and that turn's buy runs then.
         why = answer.get("error") or answer.get("code")
         return "wait", "%s — waiting: %s" % (sentence, why), why
     if answer.get("unrecognized"):
