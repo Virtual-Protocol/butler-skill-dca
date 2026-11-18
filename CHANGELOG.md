@@ -1,5 +1,22 @@
 # Changelog
 
+## 14.0.0
+
+**`INSUFFICIENT_FUNDS` waits too, and the row says what it waits for.** The container's `acp trade`
+checks cash before filing and refuses with `INSUFFICIENT_FUNDS` (nothing filed). dca@13 only knew
+the server's codes, so that refusal used up the buy's turn and a 2-buy duty finished "1 of 2"
+instead of pausing for a top-up. While it waited, the row read "First buy any moment", which
+never told the owner it was waiting on them.
+
+- `INSUFFICIENT_FUNDS` is a wait, like `pocket_empty` and `wallet_short`: no turn is used, the
+  container pauses the duty and restarts it on a top-up.
+- A wait shows `waiting_card` ("Waiting for you to set what it can spend") when the pocket card
+  is unanswered, and `waiting_topup` ("Waiting for a top-up to buy $X") otherwise.
+- The README no longer says the server refuses a buy the pocket can't cover: a buy bigger than
+  the whole pocket asks with a card, and a short pocket or wallet pauses the duty until a top-up.
+- `recipe.json` goes to version 14 and supersedes `dca@13`. A duty already filed keeps its
+  stored code; re-file it to pick this up.
+
 ## 13.0.0
 
 **A buy its own wallet can't pay for waits; it no longer uses up its turn.** A duty with two $2

@@ -1,14 +1,14 @@
 Buys a fixed dollar amount of one token or tokenized stock on a schedule, and nothing
 else.
 
-Each fire buys `SIZE_USD` of it at whatever the price is, then leaves a quiet note in
-the duty's thread. Dollar-cost averaging: the same size every time, so the size is the
+Each fire buys `SIZE_USD` of it at any price, then leaves a quiet note in the duty's
+thread. Dollar-cost averaging: the same size every time, so the size is the
 decision and the timing is not.
 
 With `BUYS` it finishes after that many turns; only an **executed** buy counts. A
 pending approval card or an accepted order is placed, not bought. A declined or failed
-buy uses up its turn, so a run can end with fewer buys. One its own wallet can't pay
-for waits: the duty pauses until a top-up. Without `BUYS` it never ends.
+buy uses up its turn, so a run can end with fewer buys. One the wallet can't pay for
+waits for a top-up. Without `BUYS` it never ends.
 
 ## What it buys
 
@@ -32,8 +32,7 @@ on BSC. The owner gets one note when the program starts, and each fire logs the
 reason. A ticker alone on a chain would let the rail buy whichever deployment it ranks
 first, which can be a wrapper or a lookalike, and can change between fires.
 
-The title and every note name it by `TOKEN`: the ticker, or the address when the owner
-gave one.
+The title and notes name it by `TOKEN`: the ticker, or the address the owner gave.
 
 ## What it will not do
 
@@ -48,8 +47,9 @@ gave one.
   shares.
 - **Spend before the owner funds it.** It spends through the pocket, which starts
   empty; until it is funded every buy becomes an approval card. Once funded, the pocket
-  is the only limit on what it spends: the duty keeps no daily count of its own, and
-  the server refuses a buy the pocket can't cover.
+  is the only limit on what it spends, with no daily count of its own. One buy bigger
+  than the whole pocket asks with a card; when the pocket or its wallet runs short, the
+  duty pauses until a top-up, then resumes.
 
 ## Settings
 
@@ -58,7 +58,7 @@ gave one.
 | `TOKEN` | ticker or address | required | the token as the owner named it |
 | `ADDRESS` | contract address | unset | a crypto ticker's exact contract, on `CHAIN_ID` |
 | `CHAIN_ID` | numeric chain id | unset | Base `8453`, Ethereum `1`, BSC `56`, Arbitrum `42161`, Robinhood `4663`, Solana `1151111081099710` |
-| `SIZE_USD` | US dollars per buy | required | minimum 2, the swap route's own floor; a tokenized stock's floor is per ticker (`/stock-limits`: $5 on most tickers, $22 on the illiquid tail), and a fire under it is skipped with the reason logged |
+| `SIZE_USD` | US dollars per buy | required | minimum 2, the swap route's own floor; a tokenized stock's floor is per ticker (`/stock-limits`: $5 on most tickers, $22 on the illiquid tail), and a fire under it is skipped |
 | `BUYS` | count | unset | buys, then it finishes; "every 10 min for 2 hours" is 12 |
 | `RUN` | text | unset | a new value restarts the count; so does any changed setting |
 | `SIZING` | — | `fixed` | fixed-size by definition; it takes no other value |

@@ -1,6 +1,6 @@
 {
   "id": "dca",
-  "version": 13,
+  "version": 14,
   "description": "Buy a fixed dollar amount of one token or tokenized stock on a schedule, optionally stopping after a set number of buys.",
   "keywords": [
     "dca",
@@ -31,7 +31,8 @@
     "dca@9",
     "dca@10",
     "dca@11",
-    "dca@12"
+    "dca@12",
+    "dca@13"
   ],
   "keys": [
     "buy:<duty>:slot:<slot>"
@@ -74,7 +75,7 @@
         "type": "integer",
         "minimum": 1,
         "maximum": 1000,
-        "description": "how many buys, then the duty finishes itself — for 'every 10 min for 2 hours' that is 12. Only buys that executed count; a declined or failed buy uses up its turn, but one its own wallet can't pay for waits for a top-up. Leave unset to buy until the owner pauses it. The timer must fire at least BUYS times, so set the interval and BUYS together"
+        "description": "how many buys, then the duty finishes itself — for 'every 10 min for 2 hours' that is 12. Only buys that executed count; a declined or failed buy uses up its turn, but one the wallet can't pay for waits for a top-up. Leave unset to buy until the owner pauses it. The timer must fire at least BUYS times, so set the interval and BUYS together"
       },
       "RUN": {
         "type": "string",
@@ -111,6 +112,8 @@
       "last": "Last buy failed",
       "next": "next buy {next}"
     },
+    "waiting_card": "Waiting for you to set what it can spend",
+    "waiting_topup": "Waiting for a top-up to buy ${SIZE_USD}",
     "paused": "Paused: confirm the token and chain"
   },
   "notes": {

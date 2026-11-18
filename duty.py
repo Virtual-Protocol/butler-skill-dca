@@ -53,6 +53,14 @@ STOCK_MIN_DEFAULT_USD = 5.0
 SETTLE_WAIT_S = 20
 LEDGER_POLL_S = 4
 
+#: Server codes that mean "not filed, the owner's pocket card is unanswered".
+CARD_WAITS = ("pocket_pending",)
+
+#: Not filed, and a top-up fixes it. INSUFFICIENT_FUNDS is acp's own cash check
+#: before filing (nothing was filed); the container pauses the duty and
+#: restarts it on a top-up, so the turn must not be used up.
+TOPUP_WAITS = ("pocket_empty", "wallet_short", "INSUFFICIENT_FUNDS")
+
 #: What a declined or failed buy is, in the approval column of the ledger.
 DROPPED_APPROVALS = ("rejected", "superseded", "expired", "failed")
 
@@ -168,14 +176,15 @@ def answer_of(text):
 
 def filed(args, key, sentence):
     """Run one `acp trade` and read what it answered. Returns (kind, summary,
-    why): `summary` for the log, and `why` the server's own words for a refusal
-    or a wait (None otherwise). kind is one of:
+    why, on_card): `summary` for the log, `why` the server's own words for a
+    refusal or a wait (None otherwise), and `on_card` whether a wait is on the
+    owner's pocket card rather than on a top-up. kind is one of:
 
     - `executed`: the trade went through.
     - `asked`: an approval card is in front of the owner; nothing bought yet.
     - `placed`: accepted and in flight; nothing bought yet, and it can fail.
     - `wait`: not filed, because the pocket card is unanswered, the pocket is
-      empty, or the duty's own wallet is short. A wait, not a failure.
+      empty, or the wallet is short. A wait, not a failure.
     - `refused`: turned down; nothing was bought.
     - `unknown`: the answer was unreadable, so the buy may or may not have
       landed.
@@ -201,28 +210,28 @@ def filed(args, key, sentence):
         return "unknown", (
             "%s — outcome UNKNOWN, the rail said nothing readable (exec_status: %s). "
             "Never re-run this with a new key." % (sentence, state)
-        ), None
+        ), None, False
     if answer.get("executed"):
-        return "executed", "%s — executed" % sentence, None
+        return "executed", "%s — executed" % sentence, None, False
     if answer.get("asked"):
-        return "asked", "%s — waiting for your approval" % sentence, None
+        return "asked", "%s — waiting for your approval" % sentence, None, False
     if answer.get("ok") or answer.get("status") == "accepted":
-        return "placed", "%s — placed, executing" % sentence, None
-    if answer.get("code") in ("pocket_pending", "pocket_empty", "wallet_short"):
-        # bevo-server's 402: the owner has not answered this duty's pocket
-        # card yet, has not funded it, or its own wallet can't pay, so nothing
-        # was filed. A wallet_short turn is kept: the container pauses the duty
-        # and restarts it on a top-up, and that turn's buy runs then.
-        why = answer.get("error") or answer.get("code")
-        return "wait", "%s — waiting: %s" % (sentence, why), why
+        return "placed", "%s — placed, executing" % sentence, None, False
+    code = answer.get("code")
+    if code in CARD_WAITS + TOPUP_WAITS:
+        # The owner has not answered this duty's pocket card, has not funded
+        # it, or the wallet can't pay, so nothing was filed. The turn is kept:
+        # after a top-up the container restarts the duty and that buy runs.
+        why = answer.get("error") or code
+        return "wait", "%s — waiting: %s" % (sentence, why), why, code in CARD_WAITS
     if answer.get("unrecognized"):
         # Not a refusal: the server answered something, and it may have filed.
         return "unknown", (
             "%s — unconfirmed: the server answered %r; check Activity before counting it"
             % (sentence, answer.get("status"))
-        ), None
+        ), None, False
     why = answer.get("error") or answer.get("status")
-    return "refused", ("%s — refused: %s" % (sentence, why) if why else "%s — refused" % sentence), why
+    return "refused", ("%s — refused: %s" % (sentence, why) if why else "%s — refused" % sentence), why, False
 
 
 def ledger_verdict(row):
@@ -366,12 +375,11 @@ def buy_once(tick):
     if not can_buy(tick):
         bevo.status("skipped")
         return
-    kind, summary, _ = filed(ARGS, slot_buy_key(tick), "Buy %s" % LABEL)
+    kind, summary, _, on_card = filed(ARGS, slot_buy_key(tick), "Buy %s" % LABEL)
     if kind == "wait":
-        # The pocket is unanswered or empty, so no buy has run yet: the row
-        # keeps saying when the first one is, never "failed".
+        # Nothing was filed: the row says what the owner must do, never "failed".
         say("waiting %s: %s" % (tick.slot, summary))
-        bevo.status("starting")
+        bevo.status("waiting_card" if on_card else "waiting_topup")
     elif kind == "executed":
         bevo.notify("executed", token=LABEL, quiet=True)
         bevo.status("bought")
@@ -391,6 +399,7 @@ def count_once(tick, tally):
     buy still placed, and finish once every turn has resolved."""
     skipped_fire = False
     fresh = None
+    waited = None
     if resolved(tally) + len(tally["placed"]) < BUYS:
         if not can_buy(tick):
             skipped_fire = True
@@ -398,9 +407,11 @@ def count_once(tick, tally):
             say("skipped %s: this slot's buy is already filed" % tick.slot)
         else:
             key = slot_buy_key(tick)
-            kind, summary, why = filed(ARGS, key, "Buy %s" % LABEL)
+            kind, summary, why, on_card = filed(ARGS, key, "Buy %s" % LABEL)
             say("%s: %s" % (tick.slot, summary))
-            if kind != "wait":
+            if kind == "wait":
+                waited = on_card
+            else:
                 tally["filed"].append(key)
             if kind == "executed":
                 tally["bought"] += 1
@@ -450,8 +461,9 @@ def count_once(tick, tally):
         bevo.status("approval_count", n=tally["bought"], total=BUYS)
     elif skipped_fire:
         bevo.status("skipped")
+    elif waited is not None:
+        bevo.status("waiting_card" if waited else "waiting_topup")
     elif not tally["filed"]:
-        # Nothing filed yet — a pocket still unanswered or empty included.
         bevo.status("starting")
     else:
         bevo.status("progress", n=tally["bought"], total=BUYS)
