@@ -1,6 +1,6 @@
 {
   "id": "dca",
-  "version": 14,
+  "version": 15,
   "description": "Buy a fixed dollar amount of one token or tokenized stock on a schedule, optionally stopping after a set number of buys.",
   "keywords": [
     "dca",
@@ -32,7 +32,8 @@
     "dca@10",
     "dca@11",
     "dca@12",
-    "dca@13"
+    "dca@13",
+    "dca@14"
   ],
   "keys": [
     "buy:<duty>:slot:<slot>"

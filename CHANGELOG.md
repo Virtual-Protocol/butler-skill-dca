@@ -1,5 +1,20 @@
 # Changelog
 
+## 15.0.0
+
+**A top-up that withdraws the run-out card frees the buy's turn.** When the pocket ran out, the
+buy waited on an approval card. The server now withdraws that card when the owner tops up
+(`approvalStatus: "superseded"`, `approvalWithdrawnBy: "pocket_top_up"`), and dca@14 counted the
+withdrawn buy as declined, using up its turn.
+
+- `ledger_verdict` reads that row as `again`; `settled()` asks `bevo.settled(..., again=True)`
+  and falls back to the exec_status + ledger loop on images without the flag.
+- An `again` buy is uncounted: its slot is free and the buy is placed again under the next
+  slot's key. The literal `again=True` in the `settled(` call is what tells the server this
+  duty can take the withdrawal.
+- `recipe.json` goes to version 15 and supersedes `dca@14`. A duty already filed keeps its
+  stored code; re-file it to pick this up.
+
 ## 14.0.0
 
 **`INSUFFICIENT_FUNDS` waits too, and the row says what it waits for.** The container's `acp trade`
