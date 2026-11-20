@@ -244,6 +244,12 @@ def ledger_verdict(row):
     approval = row.get("approvalStatus")
     if state == "executed" or (state == "manual" and approval == "confirmed"):
         return "executed"
+    if (
+        state == "manual"
+        and approval == "superseded"
+        and row.get("approvalWithdrawnBy") == "pocket_top_up"
+    ):
+        return "again"
     if state == "refused" or (state == "manual" and approval in DROPPED_APPROVALS):
         return "dropped"
     if state == "manual" and approval == "pending":
@@ -254,13 +260,18 @@ def ledger_verdict(row):
 
 
 def settled(key, wait=0):
-    """executed | approval | waiting | dropped | unknown, for one placed buy.
+    """executed | approval | waiting | dropped | again | unknown, for one placed buy.
 
-    The hub index is shared with containers that predate `bevo.settled()`, so
-    on those the same verdict is read off `bevo.exec_status()`.
+    `again` is a run-out card the server withdrew on a top-up: nothing was
+    bought and the turn is free. The hub index is shared with containers that
+    predate `bevo.settled()` (or its `again` flag), so on those the same
+    verdict is read off `bevo.exec_status()`.
     """
     if hasattr(bevo, "settled"):
-        return bevo.settled(key, route="trade", wait=wait)
+        try:
+            return bevo.settled(key, route="trade", wait=wait, again=True)
+        except TypeError:
+            pass
     verdict = "waiting"
     for attempt in range(1 + int(wait) // LEDGER_POLL_S):
         if attempt:
@@ -400,6 +411,12 @@ def count_once(tick, tally):
     skipped_fire = False
     fresh = None
     waited = None
+    # A buy whose run-out card a top-up withdrew is uncounted: free its slot
+    # before asking for a turn, so the next slot places it again.
+    for key in list(tally["placed"]):
+        if settled(key) == "again":
+            tally["placed"].remove(key)
+            save_tally(tally)
     if resolved(tally) + len(tally["placed"]) < BUYS:
         if not can_buy(tick):
             skipped_fire = True
@@ -440,6 +457,9 @@ def count_once(tick, tally):
             tally["skipped"] += 1
             save_tally(tally)
             bevo.notify("dropped", token=LABEL, quiet=True)
+        elif verdict == "again":
+            tally["placed"].remove(key)
+            save_tally(tally)
         elif verdict == "unknown":
             tally["placed"].remove(key)
             tally["unsure"] += 1
