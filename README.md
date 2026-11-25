@@ -8,7 +8,8 @@ decision and the timing is not.
 With `BUYS` it finishes after that many turns; only an **executed** buy counts. A
 pending approval card or an accepted order is placed, not bought. A declined or failed
 buy uses up its turn, so a run can end with fewer buys. One the wallet can't pay for
-waits for a top-up. Without `BUYS` it never ends.
+waits for a top-up. A buy whose answer was lost is sent again under the same key, never
+bought twice. Without `BUYS` it never ends.
 
 ## What it buys
 
