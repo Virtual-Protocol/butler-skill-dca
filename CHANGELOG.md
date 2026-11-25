@@ -1,5 +1,29 @@
 # Changelog
 
+## 16.0.0
+
+**A buy whose answer was lost is asked again under the same key; it no longer uses up a turn or
+buys twice.** dca@15 read every answer it did not recognise as a refusal, so a proxy 504 (the buy
+may have landed behind it), a lost reply (`unknown_outcome`, `not_found`) or a 409
+`IDEMPOTENT_IN_FLIGHT` used up the turn, and an empty answer counted as unconfirmed. Worse, the
+forwarder can take longer than the 180 s `acp trade` was given: the fire crashed on the timeout
+before the key was recorded, and the next slot bought again under a new key.
+
+- A timeout, an empty answer, `unknown_outcome`, `not_found`, or a code-less refusal carrying a
+  5xx `httpStatus` (a container that predates `unknown_outcome`) is kept and sent again on later
+  runs under the SAME key until the server answers. The duty does not finish meanwhile, files no
+  new buy, and the row reads "No clear answer yet". The owner gets one quiet `unanswered` note.
+- The key is stored before the send, so a fire that dies mid-send leaves it to be resent, never a
+  free turn for a new key.
+- `IDEMPOTENT_IN_FLIGHT` is placed: the server has the buy, and the ledger settles it.
+- `unknown` and `IDEMPOTENT_UNKNOWN_OUTCOME` (the server itself lost the outcome) still count as
+  unconfirmed and are never resent. A real refusal still uses up its turn.
+- `acp trade` gets 300 s, the forwarder's own budget (a cash read, a 180 s POST, three 15 s
+  ledger polls), and a timeout is caught.
+- Without `BUYS` there is no count, so a lost answer is only logged, with the same row.
+- `recipe.json` goes to version 16 and supersedes `dca@15`. A duty already filed keeps its
+  stored code; re-file it to pick this up.
+
 ## 15.0.0
 
 **A top-up that withdraws the run-out card frees the buy's turn.** When the pocket ran out, the

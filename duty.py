@@ -53,6 +53,11 @@ STOCK_MIN_DEFAULT_USD = 5.0
 SETTLE_WAIT_S = 20
 LEDGER_POLL_S = 4
 
+#: How long one `acp trade` may run. The forwarder's own budget is a cash read,
+#: a 180 s POST and three 15 s ledger polls, so a shorter limit would cut off a
+#: send that is still on its way to an answer.
+TRADE_TIMEOUT_S = 300
+
 #: Server codes that mean "not filed, the owner's pocket card is unanswered".
 CARD_WAITS = ("pocket_pending",)
 
@@ -186,38 +191,64 @@ def filed(args, key, sentence):
     - `wait`: not filed, because the pocket card is unanswered, the pocket is
       empty, or the wallet is short. A wait, not a failure.
     - `refused`: turned down; nothing was bought.
-    - `unknown`: the answer was unreadable, so the buy may or may not have
-      landed.
+    - `retry`: the answer never arrived (a timeout, an empty reply, a proxy
+      error, or the server lost track of the reply), so the buy may or may
+      not have landed. It is sent again later under the same key.
+    - `unknown`: the server answered, but it cannot say whether the buy
+      landed, and asking again would not tell.
 
     `--idempotency-key` is the last pair of the argv and is written out
     literally, which is what makes a catch-up fire a replay the ledger
     recognises rather than a second buy.
 
-    An unparseable answer is `unknown`, never "refused": the request may have
-    landed. `bevo.exec_status(key)` is the one way to find out, and re-running
-    with a NEW key is how one buy becomes two.
+    A missing answer is `retry`, never "refused": the request may have landed.
+    Sending it again under the SAME key is how to find out — the server answers
+    a key it has seen with its first outcome — and re-running with a NEW key is
+    how one buy becomes two.
     """
-    done = subprocess.run(
-        ["acp", "trade", *args, "--idempotency-key", key],
-        capture_output=True,
-        text=True,
-        timeout=180,
-        check=False,
-    )
+    try:
+        done = subprocess.run(
+            ["acp", "trade", *args, "--idempotency-key", key],
+            capture_output=True,
+            text=True,
+            timeout=TRADE_TIMEOUT_S,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return "retry", "%s — no answer within %d s" % (sentence, TRADE_TIMEOUT_S), None, False
     answer = answer_of(done.stdout)
     if answer is None:
-        state = (bevo.exec_status(key) or {}).get("state")
-        return "unknown", (
-            "%s — outcome UNKNOWN, the rail said nothing readable (exec_status: %s). "
-            "Never re-run this with a new key." % (sentence, state)
-        ), None, False
+        return "retry", "%s — the rail said nothing readable" % sentence, None, False
     if answer.get("executed"):
         return "executed", "%s — executed" % sentence, None, False
     if answer.get("asked"):
         return "asked", "%s — waiting for your approval" % sentence, None, False
-    if answer.get("ok") or answer.get("status") == "accepted":
+    status = answer.get("status")
+    if answer.get("ok") or status == "accepted":
         return "placed", "%s — placed, executing" % sentence, None, False
     code = answer.get("code")
+    if code == "IDEMPOTENT_IN_FLIGHT":
+        # The server holds this key and is still working on it; settled()
+        # follows it from here.
+        return "placed", "%s — placed, the server is still working on it" % sentence, None, False
+    http = answer.get("httpStatus")
+    proxy_page = (
+        status == "refused"
+        and not code
+        and isinstance(http, int)
+        and not isinstance(http, bool)
+        and http >= 500
+    )
+    if status in ("unknown_outcome", "not_found") or proxy_page:
+        # A container that predates `unknown_outcome` reads a proxy's 5xx page
+        # as a code-less refusal, though the buy may have landed behind it.
+        return "retry", "%s — no clear answer (%s)" % (sentence, http or status), None, False
+    if status == "unknown" or code == "IDEMPOTENT_UNKNOWN_OUTCOME":
+        # The server itself lost the outcome; a resend would get the same answer.
+        return "unknown", (
+            "%s — unconfirmed: the server cannot say whether it went through; check Activity"
+            % sentence
+        ), None, False
     if code in CARD_WAITS + TOPUP_WAITS:
         # The owner has not answered this duty's pocket card, has not funded
         # it, or the wallet can't pay, so nothing was filed. The turn is kept:
@@ -340,6 +371,9 @@ def load_tally():
     # this run, so a catch-up fire on a slot already filed is never counted twice.
     tally.setdefault("placed", [])
     tally.setdefault("filed", [])
+    # The one key whose answer was lost: sent again, under that key, until the
+    # server answers. None in a tally a v15 run left.
+    tally.setdefault("retry", None)
     return tally
 
 
@@ -377,6 +411,36 @@ def note_bought(tally):
     bevo.notify("bought", n=tally["bought"], total=BUYS, token=LABEL, quiet=True)
 
 
+def record(tally, key, kind, why, first):
+    """Count one send's answer, for a fresh buy and a resent one alike.
+
+    `first` is whether this was the key's first send: the owner hears about a
+    lost answer once, not on every resend.
+    """
+    if kind != "retry" and tally["retry"] == key:
+        tally["retry"] = None
+    if kind == "wait":
+        # Nothing was filed, so the key is not spent and its slot can be placed later.
+        if key in tally["filed"]:
+            tally["filed"].remove(key)
+    elif kind == "executed":
+        tally["bought"] += 1
+        note_bought(tally)
+    elif kind in ("asked", "placed"):
+        tally["placed"].append(key)
+    elif kind == "refused":
+        tally["skipped"] += 1
+        bevo.notify("refused", token=LABEL, why=why, quiet=True)
+    elif kind == "unknown":
+        tally["unsure"] += 1
+        bevo.notify("unconfirmed", token=LABEL, quiet=True)
+    elif kind == "retry":
+        tally["retry"] = key
+        if first:
+            bevo.notify("unanswered", token=LABEL, quiet=True)
+    save_tally(tally)
+
+
 def slot_buy_key(tick):
     return "buy:%s:slot:%s" % (bevo.SERVICE_ID, slot_key(tick.slot))
 
@@ -400,6 +464,9 @@ def buy_once(tick):
     elif kind == "placed":
         bevo.notify("placed", token=LABEL, quiet=True)
         bevo.status("placed")
+    elif kind in ("retry", "unknown"):
+        say("unclear %s: %s" % (tick.slot, summary))
+        bevo.status("unclear")
     else:
         say("skipped %s: %s" % (tick.slot, summary))
         bevo.status("failed")
@@ -417,32 +484,37 @@ def count_once(tick, tally):
         if settled(key) == "again":
             tally["placed"].remove(key)
             save_tally(tally)
-    if resolved(tally) + len(tally["placed"]) < BUYS:
+    sent = None
+    if tally["retry"]:
+        # A buy whose answer was lost goes again under its own key, ahead of any
+        # new one: the key exists only because a send already passed can_buy().
+        key = tally["retry"]
+        kind, summary, why, on_card = filed(ARGS, key, "Buy %s" % LABEL)
+        say("%s: %s (the same buy as before)" % (tick.slot, summary))
+        record(tally, key, kind, why, first=False)
+        sent = (key, kind, on_card)
+    elif resolved(tally) + len(tally["placed"]) < BUYS:
         if not can_buy(tick):
             skipped_fire = True
         elif slot_buy_key(tick) in tally["filed"]:
             say("skipped %s: this slot's buy is already filed" % tick.slot)
         else:
             key = slot_buy_key(tick)
+            # Kept before the send, so a fire that dies mid-send leaves the key
+            # to be sent again rather than a free turn a new key would fill.
+            tally["retry"] = key
+            tally["filed"].append(key)
+            save_tally(tally)
             kind, summary, why, on_card = filed(ARGS, key, "Buy %s" % LABEL)
             say("%s: %s" % (tick.slot, summary))
-            if kind == "wait":
-                waited = on_card
-            else:
-                tally["filed"].append(key)
-            if kind == "executed":
-                tally["bought"] += 1
-                note_bought(tally)
-            elif kind in ("asked", "placed"):
-                tally["placed"].append(key)
-                fresh = key
-            elif kind == "refused":
-                tally["skipped"] += 1
-                bevo.notify("refused", token=LABEL, why=why, quiet=True)
-            elif kind == "unknown":
-                tally["unsure"] += 1
-                bevo.notify("unconfirmed", token=LABEL, quiet=True)
-            save_tally(tally)
+            record(tally, key, kind, why, first=True)
+            sent = (key, kind, on_card)
+    if sent:
+        key, kind, on_card = sent
+        if kind in ("asked", "placed"):
+            fresh = key
+        elif kind == "wait":
+            waited = on_card
 
     awaiting = False
     for key in list(tally["placed"]):
@@ -479,6 +551,8 @@ def count_once(tick, tally):
 
     if awaiting:
         bevo.status("approval_count", n=tally["bought"], total=BUYS)
+    elif tally["retry"]:
+        bevo.status("unclear")
     elif skipped_fire:
         bevo.status("skipped")
     elif waited is not None:
